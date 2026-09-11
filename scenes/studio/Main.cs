@@ -12,66 +12,49 @@ public partial class Main : Node3D
     private static readonly Color GoldColor = new("d8a91b");
     private static readonly Color NavyColor = new("173b73");
 
-    private readonly Dictionary<Player, PlayerPawn> _pawns = [];
+    private readonly Dictionary<Guid, Node3D> _pawns = [];
     private readonly PackedScene _fieldScene = GD.Load<PackedScene>("res://scenes/games/field.tscn");
     private readonly PackedScene _playerScene = GD.Load<PackedScene>("res://scenes/characters/player_pawn.tscn");
-    private Button _runPlayButton = null!;
+    private Game _game = null!;
+    private PlayDefinition _play = null!;
+    private FootballView _football = null!;
+    private PlayDirectorPanel _director = null!;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
-    private PlayerPawn _quarterback = null!;
 
     public override void _Ready()
     {
-        var game = Game.CreatePrototype();
+        _game = Game.CreatePrototype();
+        _play = PlayDefinition.CreatePrototype(_game);
         AddChild(_fieldScene.Instantiate());
         BuildLightingAndCamera();
+        SpawnTeam(_game.Gold, GoldColor, 0);
+        SpawnTeam(_game.Navy, NavyColor, Mathf.Pi);
+
+        _football = new FootballView { Name = "Football" };
+        AddChild(_football);
+        ApplyFormation();
         BuildUi();
-
-        SpawnTeam(game.Gold, GoldColor, new[]
-        {
-            new Vector3(0, 0.08f, -2),
-            new Vector3(0, 0.08f, -5),
-            new Vector3(-6, 0.08f, -2),
-            new Vector3(6, 0.08f, -2),
-            new Vector3(3, 0.08f, -5)
-        }, 0);
-
-        SpawnTeam(game.Navy, NavyColor, new[]
-        {
-            new Vector3(-6, 0.08f, 1),
-            new Vector3(-3, 0.08f, 1),
-            new Vector3(0, 0.08f, 1),
-            new Vector3(3, 0.08f, 1),
-            new Vector3(6, 0.08f, 1)
-        }, Mathf.Pi);
-
-        var football = new FootballView { Name = "Football", Position = new Vector3(0, 0.9f, -1.65f) };
-        AddChild(football);
-
-        _quarterback = PawnFor(game.Gold, PlayerPosition.Quarterback);
-        var receiver = PawnFor(game.Gold, PlayerPosition.Receiver);
-        var defender = _pawns[game.Navy.Roster[0]];
 
         _sequence = new PlaySequenceController { Name = "PlaySequenceController" };
         AddChild(_sequence);
-        _sequence.Configure(receiver, defender, football, this, _statusLabel);
-        _runPlayButton.Pressed += OnRunPlayPressed;
+        _sequence.Configure(_play, _pawns, _football, this, _statusLabel);
+
+        _director.FormationChanged += OnFormationChanged;
+        _director.ResetRequested += OnResetRequested;
+        _director.RunRequested += OnRunPlayRequested;
     }
 
-    private PlayerPawn PawnFor(Team team, PlayerPosition position) =>
-        _pawns[team.Roster.Single(player => player.Position == position)];
-
-    private void SpawnTeam(Team team, Color color, IReadOnlyList<Vector3> positions, float rotationY)
+    private void SpawnTeam(Team team, Color color, float rotationY)
     {
         for (var index = 0; index < team.Roster.Count; index++)
         {
             var pawn = _playerScene.Instantiate<PlayerPawn>();
             pawn.Name = $"{team.Name}_{team.Roster[index].Name}";
             pawn.Configure(team.Roster[index], color);
-            pawn.Position = positions[index];
             pawn.Rotation = new Vector3(0, rotationY, 0);
             AddChild(pawn);
-            _pawns.Add(team.Roster[index], pawn);
+            _pawns.Add(team.Roster[index].Id, pawn);
         }
     }
 
@@ -100,7 +83,7 @@ public partial class Main : Node3D
 
         var camera = new Camera3D
         {
-            Position = new Vector3(18, 20, 23),
+            Position = new Vector3(15, 19, 24),
             Fov = 52,
             Current = true
         };
@@ -118,7 +101,7 @@ public partial class Main : Node3D
             OffsetLeft = 24,
             OffsetTop = 24,
             OffsetRight = 314,
-            OffsetBottom = 166
+            OffsetBottom = 116
         };
         canvas.AddChild(panel);
 
@@ -137,26 +120,78 @@ public partial class Main : Node3D
         title.AddThemeFontSizeOverride("font_size", 28);
         stack.AddChild(title);
 
-        _runPlayButton = new Button { Text = "Run Play" };
-        stack.AddChild(_runPlayButton);
-
         _statusLabel = new Label { Text = "Ready", HorizontalAlignment = HorizontalAlignment.Center };
         stack.AddChild(_statusLabel);
+
+        _director = new PlayDirectorPanel
+        {
+            Name = "PlayDirector",
+            AnchorLeft = 0.61f,
+            AnchorTop = 0,
+            AnchorRight = 1,
+            AnchorBottom = 1,
+            OffsetLeft = 0,
+            OffsetTop = 12,
+            OffsetRight = -12,
+            OffsetBottom = -12,
+            MouseFilter = Control.MouseFilterEnum.Stop
+        };
+        canvas.AddChild(_director);
+        _director.Configure(_game, _play);
     }
 
-    private async void OnRunPlayPressed()
+    private void ApplyFormation()
+    {
+        foreach (var startingPosition in _play.StartingPositions)
+            _pawns[startingPosition.Key].Position = ToWorld(startingPosition.Value);
+
+        var center = _game.Gold.Roster.First(player => player.Position == PlayerPosition.Center);
+        var centerPosition = _play.StartingPositions[center.Id];
+        if (_football.GetParent() != this)
+            _football.Reparent(this, false);
+        _football.Position = new Vector3(centerPosition.X, 0.9f, centerPosition.Y + 0.35f);
+    }
+
+    private void OnFormationChanged()
     {
         if (_sequence.IsRunning)
             return;
+        ApplyFormation();
+        _statusLabel.Text = "Formation updated";
+    }
 
-        _runPlayButton.Disabled = true;
+    private void OnResetRequested()
+    {
+        if (_sequence.IsRunning)
+            return;
+        _play = PlayDefinition.CreatePrototype(_game);
+        _director.SetPlay(_play);
+        ApplyFormation();
+        _sequence.SetPlay(_play, _football.Position);
+        _statusLabel.Text = "Formation reset";
+    }
+
+    private async void OnRunPlayRequested()
+    {
+        if (_sequence.IsRunning)
+            return;
+        ApplyFormation();
+        _sequence.SetPlay(_play, _football.Position);
+        _director.SetEditingEnabled(false);
         try
         {
-            await _sequence.RunAsync(_quarterback);
+            await _sequence.RunAsync();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _statusLabel.Text = exception.Message;
         }
         finally
         {
-            _runPlayButton.Disabled = false;
+            _director.SetEditingEnabled(true);
         }
     }
+
+    private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);
 }
