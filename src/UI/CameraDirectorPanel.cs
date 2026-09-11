@@ -61,6 +61,14 @@ public partial class CameraDirectorPanel : PanelContainer
         RefreshCuts();
     }
 
+    public void RefreshPlayerLabels()
+    {
+        _refreshing = true;
+        RefreshPlayers();
+        RefreshEditor();
+        _refreshing = false;
+    }
+
     public void SetActiveCamera(Guid cameraId)
     {
         _activeCameraId = cameraId;
@@ -203,7 +211,7 @@ public partial class CameraDirectorPanel : PanelContainer
         foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
         {
             _playerIds.Add(player.Id);
-            _playerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
+            _playerOption.AddItem($"{player.Team?.Name} #{_project.AppearanceFor(player.Id).JerseyNumber} {player.Name}");
         }
     }
 

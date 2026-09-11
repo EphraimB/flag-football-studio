@@ -10,9 +10,11 @@ public sealed class GameProject
     private readonly List<PlayDefinition> _plays = [];
     private readonly List<CameraDefinition> _cameras = [];
     private readonly List<CameraCut> _cameraCuts = [];
+    private readonly Dictionary<Guid, PlayerAppearance> _playerAppearances = [];
     private readonly ReadOnlyCollection<PlayDefinition> _readOnlyPlays;
     private readonly ReadOnlyCollection<CameraDefinition> _readOnlyCameras;
     private readonly ReadOnlyCollection<CameraCut> _readOnlyCameraCuts;
+    private readonly ReadOnlyDictionary<Guid, PlayerAppearance> _readOnlyPlayerAppearances;
 
     public GameProject(Guid id, string name, Team homeTeam, Team awayTeam)
     {
@@ -36,6 +38,11 @@ public sealed class GameProject
         _readOnlyPlays = _plays.AsReadOnly();
         _readOnlyCameras = _cameras.AsReadOnly();
         _readOnlyCameraCuts = _cameraCuts.AsReadOnly();
+        _readOnlyPlayerAppearances = new ReadOnlyDictionary<Guid, PlayerAppearance>(_playerAppearances);
+        foreach (var player in HomeTeam.Roster)
+            _playerAppearances[player.Id] = CreateDefaultAppearance(player, true);
+        foreach (var player in AwayTeam.Roster)
+            _playerAppearances[player.Id] = CreateDefaultAppearance(player, false);
     }
 
     public Guid Id { get; }
@@ -52,6 +59,7 @@ public sealed class GameProject
     public IReadOnlyList<PlayDefinition> Plays => _readOnlyPlays;
     public IReadOnlyList<CameraDefinition> Cameras => _readOnlyCameras;
     public IReadOnlyList<CameraCut> CameraCuts => _readOnlyCameraCuts;
+    public IReadOnlyDictionary<Guid, PlayerAppearance> PlayerAppearances => _readOnlyPlayerAppearances;
 
     public void SetGameState(
         int homeScore,
@@ -159,6 +167,20 @@ public sealed class GameProject
     public IReadOnlyList<CameraCut> CameraCutsFor(Guid playId) =>
         _cameraCuts.Where(cut => cut.PlayId == playId).OrderBy(cut => cut.TimeSeconds).ToArray();
 
+    public PlayerAppearance AppearanceFor(Guid playerId) =>
+        _playerAppearances.TryGetValue(playerId, out var appearance)
+            ? appearance
+            : throw new KeyNotFoundException("The requested player appearance is not in this project.");
+
+    public void SetPlayerAppearance(PlayerAppearance appearance)
+    {
+        ArgumentNullException.ThrowIfNull(appearance);
+        var belongsToProject = HomeTeam.Roster.Concat(AwayTeam.Roster).Any(player => player.Id == appearance.PlayerId);
+        if (!belongsToProject)
+            throw new ArgumentException("The appearance player is not in this project.", nameof(appearance));
+        _playerAppearances[appearance.PlayerId] = appearance;
+    }
+
     public static GameProject CreatePrototype(Game game)
     {
         ArgumentNullException.ThrowIfNull(game);
@@ -174,5 +196,14 @@ public sealed class GameProject
         project.AddCamera(playerPov);
         project.AddCameraCut(new CameraCut(Guid.NewGuid(), play.Id, broadcast.Id, 0));
         return project;
+    }
+
+    private static PlayerAppearance CreateDefaultAppearance(Player player, bool home)
+    {
+        var appearance = new PlayerAppearance(player.Id, player.JerseyNumber);
+        appearance.SetUniformColors(
+            home ? new AppearanceColor(216, 169, 27) : new AppearanceColor(23, 59, 115),
+            new AppearanceColor(245, 245, 240));
+        return appearance;
     }
 }

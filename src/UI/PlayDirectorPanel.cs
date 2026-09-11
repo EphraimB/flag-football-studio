@@ -22,6 +22,7 @@ public partial class PlayDirectorPanel : Control
     private readonly HashSet<Guid> _navyIds = [];
     private readonly List<Button> _buttons = [];
     private PlayDefinition _play = null!;
+    private GameProject _project = null!;
     private EditorMode _mode = EditorMode.Move;
     private Guid? _selectedPlayerId;
     private Guid? _draggedPlayerId;
@@ -31,8 +32,9 @@ public partial class PlayDirectorPanel : Control
     public event Action? ResetRequested;
     public event Action? RunRequested;
 
-    public void Configure(Game game, PlayDefinition play)
+    public void Configure(Game game, PlayDefinition play, GameProject project)
     {
+        _project = project;
         SetRoster(game);
         _play = play;
         BuildToolbar();
@@ -40,8 +42,9 @@ public partial class PlayDirectorPanel : Control
         QueueRedraw();
     }
 
-    public void SetGameAndPlay(Game game, PlayDefinition play)
+    public void SetGameAndPlay(Game game, PlayDefinition play, GameProject project)
     {
+        _project = project;
         SetRoster(game);
         SetPlay(play);
     }
@@ -79,6 +82,8 @@ public partial class PlayDirectorPanel : Control
             button.Disabled = !enabled;
         MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
     }
+
+    public void RefreshAppearance() => QueueRedraw();
 
     public override void _Draw()
     {
@@ -280,7 +285,7 @@ public partial class PlayDirectorPanel : Control
             DrawCircle(center, 19, Colors.White);
         DrawCircle(center, 15, TeamColor(playerId));
 
-        var jersey = _players[playerId].JerseyNumber.ToString();
+        var jersey = _project.AppearanceFor(playerId).JerseyNumber.ToString();
         DrawString(ThemeDB.FallbackFont, center + new Vector2(-12, 5), jersey, HorizontalAlignment.Center, 24, 14, Colors.White);
         if (_play.QuarterbackId == playerId)
             DrawString(ThemeDB.FallbackFont, center + new Vector2(-20, -19), "QB", HorizontalAlignment.Center, 40, 12, Colors.White);

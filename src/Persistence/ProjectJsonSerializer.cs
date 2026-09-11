@@ -72,6 +72,7 @@ public sealed class ProjectJsonSerializer
         public List<PlayData> Plays { get; set; } = [];
         public List<CameraData> Cameras { get; set; } = [];
         public List<CameraCutData> CameraCuts { get; set; } = [];
+        public List<PlayerAppearanceData> PlayerAppearances { get; set; } = [];
 
         public static GameProjectData FromDomain(GameProject project) => new()
         {
@@ -88,13 +89,16 @@ public sealed class ProjectJsonSerializer
             PossessionTeamId = project.Possession.Id,
             Plays = project.Plays.Select(PlayData.FromDomain).ToList(),
             Cameras = project.Cameras.Select(CameraData.FromDomain).ToList(),
-            CameraCuts = project.CameraCuts.Select(CameraCutData.FromDomain).ToList()
+            CameraCuts = project.CameraCuts.Select(CameraCutData.FromDomain).ToList(),
+            PlayerAppearances = project.PlayerAppearances.Values.Select(PlayerAppearanceData.FromDomain).ToList()
         };
 
         public GameProject ToDomain()
         {
             var project = new GameProject(Id, Name, HomeTeam.ToDomain(), AwayTeam.ToDomain());
             project.SetGameState(HomeScore, AwayScore, Quarter, GameClockSeconds, Down, Distance, PossessionTeamId);
+            foreach (var appearance in PlayerAppearances)
+                project.SetPlayerAppearance(appearance.ToDomain());
             foreach (var play in Plays)
                 project.AddPlay(play.ToDomain());
             foreach (var camera in Cameras)
@@ -102,6 +106,49 @@ public sealed class ProjectJsonSerializer
             foreach (var cut in CameraCuts)
                 project.AddCameraCut(cut.ToDomain());
             return project;
+        }
+    }
+
+    private sealed class PlayerAppearanceData
+    {
+        public Guid PlayerId { get; set; }
+        public float HeightMeters { get; set; }
+        public BodyBuild BodyBuild { get; set; }
+        public AppearanceColor SkinTone { get; set; }
+        public HairStyle HairStyle { get; set; }
+        public AppearanceColor HairColor { get; set; }
+        public int JerseyNumber { get; set; }
+        public AppearanceColor PrimaryUniformColor { get; set; }
+        public AppearanceColor SecondaryUniformColor { get; set; }
+        public AppearanceColor FlagColor { get; set; }
+        public PlayerAccessories Accessories { get; set; }
+
+        public static PlayerAppearanceData FromDomain(PlayerAppearance appearance) => new()
+        {
+            PlayerId = appearance.PlayerId,
+            HeightMeters = appearance.HeightMeters,
+            BodyBuild = appearance.BodyBuild,
+            SkinTone = appearance.SkinTone,
+            HairStyle = appearance.HairStyle,
+            HairColor = appearance.HairColor,
+            JerseyNumber = appearance.JerseyNumber,
+            PrimaryUniformColor = appearance.PrimaryUniformColor,
+            SecondaryUniformColor = appearance.SecondaryUniformColor,
+            FlagColor = appearance.FlagColor,
+            Accessories = appearance.Accessories
+        };
+
+        public PlayerAppearance ToDomain()
+        {
+            var appearance = new PlayerAppearance(PlayerId, JerseyNumber);
+            appearance.SetHeight(HeightMeters);
+            appearance.SetBodyBuild(BodyBuild);
+            appearance.SetSkinTone(SkinTone);
+            appearance.SetHair(HairStyle, HairColor);
+            appearance.SetUniformColors(PrimaryUniformColor, SecondaryUniformColor);
+            appearance.SetFlagColor(FlagColor);
+            appearance.SetAccessories(Accessories);
+            return appearance;
         }
     }
 

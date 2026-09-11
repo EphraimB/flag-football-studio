@@ -5,9 +5,9 @@ directing, and rendering fully customizable flag football games.
 
 The director prototype demonstrates the core architecture with a primitive 3D
 field, two five-player teams, a top-down play editor, persistent play and camera
-libraries, a game-state scoreboard, configurable camera previews, and simple
-tween-based playback. It is an architectural prototype rather than a gameplay
-simulation.
+libraries, a game-state scoreboard, configurable camera previews, editable
+placeholder player appearances, and simple tween-based playback. It is an
+architectural prototype rather than a gameplay simulation.
 
 ## Repository layout
 
@@ -41,6 +41,12 @@ simulation.
 - `CameraDirectorPanel` edits camera data. `CameraDirectorController` is the
   presentation adapter that positions the Godot `Camera3D`, attaches Player POV
   views, and applies timed cuts during playback.
+- `PlayerAppearance` is a Godot-independent per-roster-player model for body,
+  hair, colors, jersey number, flags, and optional accessories. `GameProject`
+  owns the appearance collection and persists it with the rest of the project.
+- `PlayerStudioPanel` edits appearance data, while `PlayerPawn` translates it
+  into live primitive geometry and materials. No rendering types enter the
+  appearance model.
 - `data/` contains project-owned, non-code data for teams, uniforms, and
   playbooks.
 - `project.godot` and Godot-generated import metadata remain at the project
@@ -98,6 +104,18 @@ current operating system's per-user application-data directory.
 
 Camera definitions and cuts are included whenever **Save Project** is used and
 are restored by **Load Project**.
+
+### Player Studio controls
+
+- Choose any Gold or Navy roster member from the player list.
+- Edit height, body build, skin tone, hair style and color, jersey number,
+  primary and secondary uniform colors, and flag color.
+- Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
+- Changes rebuild the selected primitive player immediately in the 3D preview.
+
+All player appearances are included in **Save Project** and restored by
+**Load Project**. Older project files without appearance data receive default
+Gold and Navy placeholder appearances when loaded.
 
 The prototype intentionally uses only Godot primitive geometry. Player Creator,
 Jersey Editor, AI, dialogue, crowds, procedural humans, advanced physics,
