@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FlagFootballStudio.Domain;
+using FlagFootballStudio.Persistence;
 using FlagFootballStudio.Presentation;
 using Godot;
 
@@ -15,17 +16,22 @@ public partial class Main : Node3D
     private readonly Dictionary<Guid, Node3D> _pawns = [];
     private readonly PackedScene _fieldScene = GD.Load<PackedScene>("res://scenes/games/field.tscn");
     private readonly PackedScene _playerScene = GD.Load<PackedScene>("res://scenes/characters/player_pawn.tscn");
+    private readonly JsonProjectFileStore _fileStore = new(new ProjectJsonSerializer());
+    private readonly string _projectPath = ProjectSettings.GlobalizePath("user://flag-football-studio/game-project.json");
     private Game _game = null!;
+    private GameProject _project = null!;
     private PlayDefinition _play = null!;
     private FootballView _football = null!;
     private PlayDirectorPanel _director = null!;
+    private GameDirectorPanel _gameDirector = null!;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
 
     public override void _Ready()
     {
         _game = Game.CreatePrototype();
-        _play = PlayDefinition.CreatePrototype(_game);
+        _project = GameProject.CreatePrototype(_game);
+        _play = _project.Plays[0];
         AddChild(_fieldScene.Instantiate());
         BuildLightingAndCamera();
         SpawnTeam(_game.Gold, GoldColor, 0);
@@ -43,6 +49,13 @@ public partial class Main : Node3D
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
         _director.RunRequested += OnRunPlayRequested;
+        _gameDirector.PlaySelected += OnPlaySelected;
+        _gameDirector.CreateRequested += OnCreatePlayRequested;
+        _gameDirector.RenameRequested += OnRenamePlayRequested;
+        _gameDirector.DuplicateRequested += OnDuplicatePlayRequested;
+        _gameDirector.DeleteRequested += OnDeletePlayRequested;
+        _gameDirector.SaveRequested += OnSaveRequested;
+        _gameDirector.LoadRequested += OnLoadRequested;
     }
 
     private void SpawnTeam(Team team, Color color, float rotationY)
@@ -96,32 +109,17 @@ public partial class Main : Node3D
         var canvas = new CanvasLayer();
         AddChild(canvas);
 
-        var panel = new PanelContainer
+        _gameDirector = new GameDirectorPanel
         {
-            OffsetLeft = 24,
-            OffsetTop = 24,
-            OffsetRight = 314,
-            OffsetBottom = 116
+            Name = "GameDirector",
+            OffsetLeft = 16,
+            OffsetTop = 16,
+            OffsetRight = 390,
+            OffsetBottom = 410
         };
-        canvas.AddChild(panel);
-
-        var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 18);
-        margin.AddThemeConstantOverride("margin_top", 14);
-        margin.AddThemeConstantOverride("margin_right", 18);
-        margin.AddThemeConstantOverride("margin_bottom", 14);
-        panel.AddChild(margin);
-
-        var stack = new VBoxContainer();
-        stack.AddThemeConstantOverride("separation", 8);
-        margin.AddChild(stack);
-
-        var title = new Label { Text = "GOLD vs NAVY", HorizontalAlignment = HorizontalAlignment.Center };
-        title.AddThemeFontSizeOverride("font_size", 28);
-        stack.AddChild(title);
-
-        _statusLabel = new Label { Text = "Ready", HorizontalAlignment = HorizontalAlignment.Center };
-        stack.AddChild(_statusLabel);
+        canvas.AddChild(_gameDirector);
+        _gameDirector.Configure(_project, _play.Id);
+        _statusLabel = _gameDirector.StatusLabel;
 
         _director = new PlayDirectorPanel
         {
@@ -164,11 +162,10 @@ public partial class Main : Node3D
     {
         if (_sequence.IsRunning)
             return;
-        _play = PlayDefinition.CreatePrototype(_game);
-        _director.SetPlay(_play);
-        ApplyFormation();
-        _sequence.SetPlay(_play, _football.Position);
-        _statusLabel.Text = "Formation reset";
+
+        var resetPlay = PlayDefinition.CreatePrototype(_game, _play.Name, _play.Id);
+        _project.ReplacePlay(_play.Id, resetPlay);
+        SwitchToPlay(resetPlay.Id, "Formation reset");
     }
 
     private async void OnRunPlayRequested()
@@ -178,6 +175,7 @@ public partial class Main : Node3D
         ApplyFormation();
         _sequence.SetPlay(_play, _football.Position);
         _director.SetEditingEnabled(false);
+        _gameDirector.SetInteractionEnabled(false);
         try
         {
             await _sequence.RunAsync();
@@ -190,7 +188,122 @@ public partial class Main : Node3D
         finally
         {
             _director.SetEditingEnabled(true);
+            _gameDirector.SetInteractionEnabled(true);
         }
+    }
+
+    private void OnPlaySelected(Guid playId)
+    {
+        if (!_sequence.IsRunning)
+            SwitchToPlay(playId, $"Loaded {_project.Play(playId).Name}");
+    }
+
+    private void OnCreatePlayRequested()
+    {
+        if (_sequence.IsRunning)
+            return;
+        var play = PlayDefinition.CreatePrototype(_game, $"Play {_project.Plays.Count + 1}");
+        _project.AddPlay(play);
+        SwitchToPlay(play.Id, "New play created");
+    }
+
+    private void OnRenamePlayRequested(Guid playId, string name)
+    {
+        try
+        {
+            _project.Play(playId).Rename(name);
+            _gameDirector.RefreshPlayList();
+            _gameDirector.SetStatus("Play renamed");
+        }
+        catch (Exception exception)
+        {
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnDuplicatePlayRequested(Guid playId)
+    {
+        var source = _project.Play(playId);
+        var duplicate = source.Duplicate($"{source.Name} Copy");
+        _project.AddPlay(duplicate);
+        SwitchToPlay(duplicate.Id, "Play duplicated");
+    }
+
+    private void OnDeletePlayRequested(Guid playId)
+    {
+        if (_project.Plays.Count == 1)
+        {
+            _gameDirector.SetStatus("A project must keep at least one play");
+            return;
+        }
+
+        var index = _project.Plays.ToList().FindIndex(play => play.Id == playId);
+        _project.RemovePlay(playId);
+        var nextIndex = Math.Clamp(index, 0, _project.Plays.Count - 1);
+        SwitchToPlay(_project.Plays[nextIndex].Id, "Play deleted");
+    }
+
+    private void OnSaveRequested()
+    {
+        try
+        {
+            _fileStore.SaveProject(_projectPath, _project);
+            _gameDirector.SetStatus("Project saved");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _gameDirector.SetStatus($"Save failed: {exception.Message}");
+        }
+    }
+
+    private void OnLoadRequested()
+    {
+        try
+        {
+            var loadedProject = _fileStore.LoadProject(_projectPath);
+            if (loadedProject.Plays.Count == 0)
+                throw new InvalidOperationException("The project file contains no plays.");
+            LoadProject(loadedProject);
+            _gameDirector.SetStatus("Project loaded");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _gameDirector.SetStatus($"Load failed: {exception.Message}");
+        }
+    }
+
+    private void SwitchToPlay(Guid playId, string status)
+    {
+        _play = _project.Play(playId);
+        _director.SetPlay(_play);
+        _gameDirector.SetActivePlay(_play.Id);
+        ApplyFormation();
+        _sequence.SetPlay(_play, _football.Position);
+        _gameDirector.SetStatus(status);
+    }
+
+    private void LoadProject(GameProject project)
+    {
+        if (_football.GetParent() != this)
+            _football.Reparent(this, false);
+        foreach (var pawn in _pawns.Values)
+        {
+            RemoveChild(pawn);
+            pawn.QueueFree();
+        }
+        _pawns.Clear();
+
+        _project = project;
+        _game = new Game(project.HomeTeam, project.AwayTeam);
+        SpawnTeam(_game.Gold, GoldColor, 0);
+        SpawnTeam(_game.Navy, NavyColor, Mathf.Pi);
+        _play = project.Plays[0];
+        _director.SetGameAndPlay(_game, _play);
+        _gameDirector.SetProject(_project, _play.Id);
+        ApplyFormation();
+        _sequence.Configure(_play, _pawns, _football, this, _statusLabel);
     }
 
     private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);

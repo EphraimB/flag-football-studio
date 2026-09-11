@@ -17,12 +17,17 @@ public sealed class PlayDefinition
     private readonly ReadOnlyDictionary<Guid, IReadOnlyList<PlayPoint>> _readOnlyRoutes;
     private readonly ReadOnlyDictionary<Guid, Guid> _readOnlyCoverageAssignments;
 
-    public PlayDefinition(IEnumerable<Guid> playerIds)
+    public PlayDefinition(IEnumerable<Guid> playerIds, string name = "Untitled Play", Guid? id = null)
     {
         ArgumentNullException.ThrowIfNull(playerIds);
         _playerIds = new HashSet<Guid>(playerIds);
         if (_playerIds.Count == 0)
             throw new ArgumentException("A play requires at least one player.", nameof(playerIds));
+
+        Id = id ?? Guid.NewGuid();
+        if (Id == Guid.Empty)
+            throw new ArgumentException("A play ID cannot be empty.", nameof(id));
+        Name = ValidateName(name);
 
         _readOnlyStartingPositions = new ReadOnlyDictionary<Guid, PlayPoint>(_startingPositions);
         _readOnlyRoutes = new ReadOnlyDictionary<Guid, IReadOnlyList<PlayPoint>>(_routes);
@@ -32,8 +37,13 @@ public sealed class PlayDefinition
     public IReadOnlyDictionary<Guid, PlayPoint> StartingPositions => _readOnlyStartingPositions;
     public IReadOnlyDictionary<Guid, IReadOnlyList<PlayPoint>> Routes => _readOnlyRoutes;
     public IReadOnlyDictionary<Guid, Guid> CoverageAssignments => _readOnlyCoverageAssignments;
+    public IReadOnlyCollection<Guid> PlayerIds => _playerIds;
+    public Guid Id { get; }
+    public string Name { get; private set; }
     public Guid QuarterbackId { get; private set; }
     public Guid IntendedReceiverId { get; private set; }
+
+    public void Rename(string name) => Name = ValidateName(name);
 
     public void SetStartingPosition(Guid playerId, PlayPoint position)
     {
@@ -67,11 +77,27 @@ public sealed class PlayDefinition
         IntendedReceiverId = playerId;
     }
 
-    public static PlayDefinition CreatePrototype(Game game)
+    public PlayDefinition Duplicate(string name)
+    {
+        var copy = new PlayDefinition(_playerIds, name);
+        foreach (var position in _startingPositions)
+            copy.SetStartingPosition(position.Key, position.Value);
+        foreach (var route in _routes)
+            copy.SetRoute(route.Key, route.Value);
+        foreach (var assignment in _coverageAssignments)
+            copy.AssignCoverage(assignment.Key, assignment.Value);
+        if (QuarterbackId != Guid.Empty)
+            copy.SetQuarterback(QuarterbackId);
+        if (IntendedReceiverId != Guid.Empty)
+            copy.SetIntendedReceiver(IntendedReceiverId);
+        return copy;
+    }
+
+    public static PlayDefinition CreatePrototype(Game game, string name = "Quick Out", Guid? id = null)
     {
         ArgumentNullException.ThrowIfNull(game);
         var players = game.Gold.Roster.Concat(game.Navy.Roster).ToArray();
-        var play = new PlayDefinition(players.Select(player => player.Id));
+        var play = new PlayDefinition(players.Select(player => player.Id), name, id);
 
         var goldPositions = new[]
         {
@@ -108,5 +134,12 @@ public sealed class PlayDefinition
     {
         if (!_playerIds.Contains(playerId))
             throw new ArgumentException("The player is not part of this play.", nameof(playerId));
+    }
+
+    private static string ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("A play name is required.", nameof(name));
+        return name.Trim();
     }
 }

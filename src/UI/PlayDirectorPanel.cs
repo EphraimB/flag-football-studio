@@ -33,6 +33,21 @@ public partial class PlayDirectorPanel : Control
 
     public void Configure(Game game, PlayDefinition play)
     {
+        SetRoster(game);
+        _play = play;
+        BuildToolbar();
+        UpdateInstructions();
+        QueueRedraw();
+    }
+
+    public void SetGameAndPlay(Game game, PlayDefinition play)
+    {
+        SetRoster(game);
+        SetPlay(play);
+    }
+
+    private void SetRoster(Game game)
+    {
         _players.Clear();
         _goldIds.Clear();
         _navyIds.Clear();
@@ -46,11 +61,6 @@ public partial class PlayDirectorPanel : Control
             _players.Add(player.Id, player);
             _navyIds.Add(player.Id);
         }
-
-        _play = play;
-        BuildToolbar();
-        UpdateInstructions();
-        QueueRedraw();
     }
 
     public void SetPlay(PlayDefinition play)
