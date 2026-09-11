@@ -36,4 +36,13 @@ public sealed class Team
         player.AssignTo(this);
         _roster.Add(player);
     }
+
+    public void ChangeJerseyNumber(Guid playerId, int jerseyNumber)
+    {
+        var player = _roster.Find(candidate => candidate.Id == playerId)
+            ?? throw new KeyNotFoundException("The player is not on this team.");
+        if (_roster.Exists(candidate => candidate.Id != playerId && candidate.JerseyNumber == jerseyNumber))
+            throw new InvalidOperationException($"Jersey number {jerseyNumber} is already in use on {Name}.");
+        player.SetJerseyNumber(jerseyNumber);
+    }
 }

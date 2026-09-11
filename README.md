@@ -6,8 +6,9 @@ directing, and rendering fully customizable flag football games.
 The director prototype demonstrates the core architecture with a primitive 3D
 field, two five-player teams, a top-down play editor, persistent play and camera
 libraries, a game-state scoreboard, configurable camera previews, editable
-placeholder player appearances, and simple tween-based playback. It is an
-architectural prototype rather than a gameplay simulation.
+placeholder player appearances, reusable team uniform libraries, and simple
+tween-based playback. It is an architectural prototype rather than a gameplay
+simulation.
 
 ## Repository layout
 
@@ -42,11 +43,19 @@ architectural prototype rather than a gameplay simulation.
   presentation adapter that positions the Godot `Camera3D`, attaches Player POV
   views, and applies timed cuts during playback.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for body,
-  hair, colors, jersey number, flags, and optional accessories. `GameProject`
-  owns the appearance collection and persists it with the rest of the project.
+  skin, hair, and optional accessories. Jersey numbers are authoritative on the
+  roster `Player`; team-wide styling is authoritative on `UniformDefinition`.
+  `GameProject` owns and persists the appearance collection.
 - `PlayerStudioPanel` edits appearance data, while `PlayerPawn` translates it
   into live primitive geometry and materials. No rendering types enter the
   appearance model.
+- `UniformDefinition` is a Godot-independent, team-associated description of
+  uniform colors, trim, typography options, and home/away designation.
+  `GameProject` owns each team's saved uniform library and active selection,
+  and `ProjectJsonSerializer` persists both.
+- `UniformStudioPanel` edits the uniform library. `PlayerPawn` combines an
+  active team uniform with each player's roster number and individual
+  appearance to rebuild the primitive 3D presentation live.
 - `data/` contains project-owned, non-code data for teams, uniforms, and
   playbooks.
 - `project.godot` and Godot-generated import metadata remain at the project
@@ -109,7 +118,8 @@ are restored by **Load Project**.
 
 - Choose any Gold or Navy roster member from the player list.
 - Edit height, body build, skin tone, hair style and color, jersey number,
-  primary and secondary uniform colors, and flag color.
+  and the active team's primary, secondary, and flag colors. Jersey-number
+  changes update the roster; team color changes update the active uniform.
 - Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
 - Changes rebuild the selected primitive player immediately in the 3D preview.
 
@@ -117,6 +127,24 @@ All player appearances are included in **Save Project** and restored by
 **Load Project**. Older project files without appearance data receive default
 Gold and Navy placeholder appearances when loaded.
 
+### Uniform Studio controls
+
+- Choose **Gold** or **Navy** to view that team's saved uniform library.
+- **New**, **Rename**, **Duplicate**, and **Delete** manage uniforms. Each team
+  must retain at least one uniform.
+- Select a saved uniform and choose **Set Active** to dress every player on that
+  team in it immediately.
+- Edit its home/away designation, wordmark, player-name-on-back toggle, and
+  primary, secondary, accent, jersey, sleeve trim, collar trim, number, number
+  outline, shorts, and flag colors.
+- Uniform edits are reflected live when the selected uniform is active. Player
+  jersey numbers continue to come from the roster and are not stored in the
+  uniform.
+
+All saved uniforms and each team's active selection are included in **Save
+Project** and restored by **Load Project**. Older project files without uniform
+data receive default Gold and Navy home/away uniforms when loaded.
+
 The prototype intentionally uses only Godot primitive geometry. Player Creator,
-Jersey Editor, AI, dialogue, crowds, procedural humans, advanced physics,
+AI, dialogue, crowds, procedural humans, realistic cloth, advanced physics,
 final animation, and production rendering remain future work.

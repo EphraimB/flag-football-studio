@@ -25,6 +25,7 @@ public partial class Main : Node3D
     private GameDirectorPanel _gameDirector = null!;
     private CameraDirectorPanel _cameraDirector = null!;
     private PlayerStudioPanel _playerStudio = null!;
+    private UniformStudioPanel _uniformStudio = null!;
     private CameraDirectorController _cameraController = null!;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
@@ -76,6 +77,9 @@ public partial class Main : Node3D
         _cameraDirector.AddCutRequested += OnAddCameraCutRequested;
         _cameraDirector.DeleteCutRequested += OnDeleteCameraCutRequested;
         _playerStudio.AppearanceChanged += OnPlayerAppearanceChanged;
+        _playerStudio.StatusChanged += message => _gameDirector.SetStatus(message);
+        _uniformStudio.UniformChanged += OnUniformChanged;
+        _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
     }
 
     private void SpawnTeam(Team team, float rotationY)
@@ -84,7 +88,10 @@ public partial class Main : Node3D
         {
             var pawn = _playerScene.Instantiate<PlayerPawn>();
             pawn.Name = $"{team.Name}_{team.Roster[index].Name}";
-            pawn.Configure(team.Roster[index], _project.AppearanceFor(team.Roster[index].Id));
+            pawn.Configure(
+                team.Roster[index],
+                _project.AppearanceFor(team.Roster[index].Id),
+                _project.ActiveUniformFor(team.Id));
             pawn.Rotation = new Vector3(0, rotationY, 0);
             AddChild(pawn);
             _pawns.Add(team.Roster[index].Id, pawn);
@@ -147,7 +154,7 @@ public partial class Main : Node3D
             OffsetLeft = 16,
             OffsetTop = 420,
             OffsetRight = 390,
-            OffsetBottom = 884
+            OffsetBottom = 984
         };
         canvas.AddChild(_cameraDirector);
         _cameraDirector.Configure(_project, _game, _play, _selectedCameraId);
@@ -156,17 +163,28 @@ public partial class Main : Node3D
         {
             Name = "PlayerStudio",
             OffsetLeft = 400,
-            OffsetTop = 430,
-            OffsetRight = 866,
-            OffsetBottom = 884
+            OffsetTop = 530,
+            OffsetRight = 790,
+            OffsetBottom = 984
         };
         canvas.AddChild(_playerStudio);
         _playerStudio.Configure(_project, _game);
 
+        _uniformStudio = new UniformStudioPanel
+        {
+            Name = "UniformStudio",
+            OffsetLeft = 800,
+            OffsetTop = 430,
+            OffsetRight = 1212,
+            OffsetBottom = 984
+        };
+        canvas.AddChild(_uniformStudio);
+        _uniformStudio.Configure(_project);
+
         _director = new PlayDirectorPanel
         {
             Name = "PlayDirector",
-            AnchorLeft = 0.61f,
+            AnchorLeft = 0.68f,
             AnchorTop = 0,
             AnchorRight = 1,
             AnchorBottom = 1,
@@ -177,7 +195,7 @@ public partial class Main : Node3D
             MouseFilter = Control.MouseFilterEnum.Stop
         };
         canvas.AddChild(_director);
-        _director.Configure(_game, _play, _project);
+        _director.Configure(_game, _play);
     }
 
     private void ApplyFormation()
@@ -220,6 +238,7 @@ public partial class Main : Node3D
         _gameDirector.SetInteractionEnabled(false);
         _cameraDirector.SetInteractionEnabled(false);
         _playerStudio.SetInteractionEnabled(false);
+        _uniformStudio.SetInteractionEnabled(false);
         _cameraController.StopCuts();
         _ = _cameraController.PlayCutsAsync(_project, _play);
         try
@@ -237,6 +256,7 @@ public partial class Main : Node3D
             _gameDirector.SetInteractionEnabled(true);
             _cameraDirector.SetInteractionEnabled(true);
             _playerStudio.SetInteractionEnabled(true);
+            _uniformStudio.SetInteractionEnabled(true);
             _cameraController.StopCuts();
             PreviewSelectedCamera();
         }
@@ -354,10 +374,11 @@ public partial class Main : Node3D
         SpawnTeam(_game.Gold, 0);
         SpawnTeam(_game.Navy, Mathf.Pi);
         _play = project.Plays[0];
-        _director.SetGameAndPlay(_game, _play, _project);
+        _director.SetGameAndPlay(_game, _play);
         _gameDirector.SetProject(_project, _play.Id);
         _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         _playerStudio.SetProject(_project, _game);
+        _uniformStudio.SetProject(_project);
         ApplyFormation();
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel);
         _cameraController.Configure(_previewCamera, this, _pawns);
@@ -501,11 +522,29 @@ public partial class Main : Node3D
 
     private void OnPlayerAppearanceChanged(Guid playerId)
     {
-        if (_pawns.TryGetValue(playerId, out var node) && node is PlayerPawn pawn)
-            pawn.ApplyAppearance(_project.AppearanceFor(playerId));
+        var player = _game.Gold.Roster.Concat(_game.Navy.Roster).First(candidate => candidate.Id == playerId);
+        RefreshTeamPresentation(player.Team!.Id);
         _director.RefreshAppearance();
         _cameraDirector.RefreshPlayerLabels();
         _gameDirector.SetStatus("Player appearance updated");
+    }
+
+    private void OnUniformChanged(Guid teamId)
+    {
+        RefreshTeamPresentation(teamId);
+        _playerStudio.RefreshUniformFields();
+        _gameDirector.SetStatus("Uniform updated");
+    }
+
+    private void RefreshTeamPresentation(Guid teamId)
+    {
+        var team = teamId == _game.Gold.Id ? _game.Gold : _game.Navy;
+        var uniform = _project.ActiveUniformFor(teamId);
+        foreach (var player in team.Roster)
+        {
+            if (_pawns.TryGetValue(player.Id, out var node) && node is PlayerPawn pawn)
+                pawn.ApplyPresentation(_project.AppearanceFor(player.Id), uniform);
+        }
     }
 
     private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);

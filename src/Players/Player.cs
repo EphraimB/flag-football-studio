@@ -21,7 +21,7 @@ public sealed class Player
 
     public Guid Id { get; }
     public string Name { get; }
-    public int JerseyNumber { get; }
+    public int JerseyNumber { get; private set; }
     public Team? Team { get; private set; }
     public PlayerPosition Position { get; }
 
@@ -31,5 +31,12 @@ public sealed class Player
             throw new InvalidOperationException($"{Name} already belongs to {Team.Name}.");
 
         Team = team;
+    }
+
+    internal void SetJerseyNumber(int jerseyNumber)
+    {
+        if (jerseyNumber is < 0 or > 99)
+            throw new ArgumentOutOfRangeException(nameof(jerseyNumber), "Jersey numbers must be between 0 and 99.");
+        JerseyNumber = jerseyNumber;
     }
 }

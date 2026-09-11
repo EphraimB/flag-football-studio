@@ -11,10 +11,14 @@ public sealed class GameProject
     private readonly List<CameraDefinition> _cameras = [];
     private readonly List<CameraCut> _cameraCuts = [];
     private readonly Dictionary<Guid, PlayerAppearance> _playerAppearances = [];
+    private readonly List<UniformDefinition> _uniforms = [];
+    private readonly Dictionary<Guid, Guid> _activeUniformIds = [];
     private readonly ReadOnlyCollection<PlayDefinition> _readOnlyPlays;
     private readonly ReadOnlyCollection<CameraDefinition> _readOnlyCameras;
     private readonly ReadOnlyCollection<CameraCut> _readOnlyCameraCuts;
     private readonly ReadOnlyDictionary<Guid, PlayerAppearance> _readOnlyPlayerAppearances;
+    private readonly ReadOnlyCollection<UniformDefinition> _readOnlyUniforms;
+    private readonly ReadOnlyDictionary<Guid, Guid> _readOnlyActiveUniformIds;
 
     public GameProject(Guid id, string name, Team homeTeam, Team awayTeam)
     {
@@ -39,10 +43,18 @@ public sealed class GameProject
         _readOnlyCameras = _cameras.AsReadOnly();
         _readOnlyCameraCuts = _cameraCuts.AsReadOnly();
         _readOnlyPlayerAppearances = new ReadOnlyDictionary<Guid, PlayerAppearance>(_playerAppearances);
+        _readOnlyUniforms = _uniforms.AsReadOnly();
+        _readOnlyActiveUniformIds = new ReadOnlyDictionary<Guid, Guid>(_activeUniformIds);
         foreach (var player in HomeTeam.Roster)
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, true);
         foreach (var player in AwayTeam.Roster)
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, false);
+        var homeUniform = UniformDefinition.CreateTeamDefault(HomeTeam, true);
+        var awayUniform = UniformDefinition.CreateTeamDefault(AwayTeam, false);
+        AddUniform(homeUniform);
+        AddUniform(awayUniform);
+        SetActiveUniform(HomeTeam.Id, homeUniform.Id);
+        SetActiveUniform(AwayTeam.Id, awayUniform.Id);
     }
 
     public Guid Id { get; }
@@ -60,6 +72,8 @@ public sealed class GameProject
     public IReadOnlyList<CameraDefinition> Cameras => _readOnlyCameras;
     public IReadOnlyList<CameraCut> CameraCuts => _readOnlyCameraCuts;
     public IReadOnlyDictionary<Guid, PlayerAppearance> PlayerAppearances => _readOnlyPlayerAppearances;
+    public IReadOnlyList<UniformDefinition> Uniforms => _readOnlyUniforms;
+    public IReadOnlyDictionary<Guid, Guid> ActiveUniformIds => _readOnlyActiveUniformIds;
 
     public void SetGameState(
         int homeScore,
@@ -181,6 +195,73 @@ public sealed class GameProject
         _playerAppearances[appearance.PlayerId] = appearance;
     }
 
+    public void AddUniform(UniformDefinition uniform)
+    {
+        ArgumentNullException.ThrowIfNull(uniform);
+        ValidateTeam(uniform.TeamId);
+        if (_uniforms.Any(existing => existing.Id == uniform.Id))
+            throw new InvalidOperationException("The uniform is already in this project.");
+        _uniforms.Add(uniform);
+    }
+
+    public bool RemoveUniform(Guid uniformId)
+    {
+        var uniform = _uniforms.FirstOrDefault(candidate => candidate.Id == uniformId);
+        if (uniform is null)
+            return false;
+        var teamUniforms = UniformsFor(uniform.TeamId);
+        if (teamUniforms.Count == 1)
+            throw new InvalidOperationException("A team must keep at least one uniform.");
+        _uniforms.Remove(uniform);
+        if (_activeUniformIds.TryGetValue(uniform.TeamId, out var activeId) && activeId == uniformId)
+            _activeUniformIds[uniform.TeamId] = UniformsFor(uniform.TeamId)[0].Id;
+        return true;
+    }
+
+    public UniformDefinition Uniform(Guid uniformId) =>
+        _uniforms.FirstOrDefault(uniform => uniform.Id == uniformId)
+        ?? throw new KeyNotFoundException("The requested uniform is not in this project.");
+
+    public IReadOnlyList<UniformDefinition> UniformsFor(Guid teamId)
+    {
+        ValidateTeam(teamId);
+        return _uniforms.Where(uniform => uniform.TeamId == teamId).ToArray();
+    }
+
+    public void SetActiveUniform(Guid teamId, Guid uniformId)
+    {
+        ValidateTeam(teamId);
+        var uniform = Uniform(uniformId);
+        if (uniform.TeamId != teamId)
+            throw new ArgumentException("The uniform belongs to a different team.", nameof(uniformId));
+        _activeUniformIds[teamId] = uniformId;
+    }
+
+    public UniformDefinition ActiveUniformFor(Guid teamId)
+    {
+        ValidateTeam(teamId);
+        return _activeUniformIds.TryGetValue(teamId, out var uniformId)
+            ? Uniform(uniformId)
+            : throw new InvalidOperationException("The team has no active uniform.");
+    }
+
+    public void ReplaceUniformLibrary(IEnumerable<UniformDefinition> uniforms, IReadOnlyDictionary<Guid, Guid> activeUniformIds)
+    {
+        ArgumentNullException.ThrowIfNull(uniforms);
+        ArgumentNullException.ThrowIfNull(activeUniformIds);
+        var replacements = uniforms.ToArray();
+        if (!replacements.Any(uniform => uniform.TeamId == HomeTeam.Id) ||
+            !replacements.Any(uniform => uniform.TeamId == AwayTeam.Id))
+            throw new ArgumentException("Each team must have at least one uniform.", nameof(uniforms));
+
+        _uniforms.Clear();
+        _activeUniformIds.Clear();
+        foreach (var uniform in replacements)
+            AddUniform(uniform);
+        SetActiveUniform(HomeTeam.Id, activeUniformIds[HomeTeam.Id]);
+        SetActiveUniform(AwayTeam.Id, activeUniformIds[AwayTeam.Id]);
+    }
+
     public static GameProject CreatePrototype(Game game)
     {
         ArgumentNullException.ThrowIfNull(game);
@@ -205,5 +286,11 @@ public sealed class GameProject
             home ? new AppearanceColor(216, 169, 27) : new AppearanceColor(23, 59, 115),
             new AppearanceColor(245, 245, 240));
         return appearance;
+    }
+
+    private void ValidateTeam(Guid teamId)
+    {
+        if (teamId != HomeTeam.Id && teamId != AwayTeam.Id)
+            throw new ArgumentException("The team is not in this project.", nameof(teamId));
     }
 }

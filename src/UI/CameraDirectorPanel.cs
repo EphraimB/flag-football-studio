@@ -211,7 +211,7 @@ public partial class CameraDirectorPanel : PanelContainer
         foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
         {
             _playerIds.Add(player.Id);
-            _playerOption.AddItem($"{player.Team?.Name} #{_project.AppearanceFor(player.Id).JerseyNumber} {player.Name}");
+            _playerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
         }
     }
 

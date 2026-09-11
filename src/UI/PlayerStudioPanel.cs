@@ -26,6 +26,7 @@ public partial class PlayerStudioPanel : PanelContainer
     private ColorPickerButton _flagColor = null!;
 
     public event Action<Guid>? AppearanceChanged;
+    public event Action<string>? StatusChanged;
 
     public void Configure(GameProject project, Game game)
     {
@@ -47,6 +48,13 @@ public partial class PlayerStudioPanel : PanelContainer
             control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
         foreach (var check in _accessoryChecks.Values)
             check.Disabled = !enabled;
+    }
+
+    public void RefreshUniformFields()
+    {
+        _refreshing = true;
+        RefreshEditor();
+        _refreshing = false;
     }
 
     private void BuildUi()
@@ -96,7 +104,7 @@ public partial class PlayerStudioPanel : PanelContainer
         AddField(grid, "Hair color", _hairColor);
 
         _jerseyNumber = CreateSpinBox(0, 99, 1);
-        _jerseyNumber.ValueChanged += value => UpdateAppearance(appearance => appearance.SetJerseyNumber((int)value));
+        _jerseyNumber.ValueChanged += OnJerseyNumberChanged;
         AddField(grid, "Jersey number", _jerseyNumber);
 
         _primaryColor = CreateColorButton();
@@ -108,7 +116,7 @@ public partial class PlayerStudioPanel : PanelContainer
         AddField(grid, "Secondary uniform", _secondaryColor);
 
         _flagColor = CreateColorButton();
-        _flagColor.ColorChanged += color => UpdateAppearance(appearance => appearance.SetFlagColor(ToDomain(color)));
+        _flagColor.ColorChanged += OnFlagColorChanged;
         AddField(grid, "Flag color", _flagColor);
 
         stack.AddChild(new Label { Text = "Accessories" });
@@ -128,8 +136,7 @@ public partial class PlayerStudioPanel : PanelContainer
         foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
         {
             _playerIds.Add(player.Id);
-            var appearance = _project.AppearanceFor(player.Id);
-            _playerOption.AddItem($"{player.Team?.Name} #{appearance.JerseyNumber} {player.Name}");
+            _playerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
         }
 
         _selectedPlayerId = _playerIds.Count > 0 ? _playerIds[0] : Guid.Empty;
@@ -144,15 +151,17 @@ public partial class PlayerStudioPanel : PanelContainer
         if (_selectedPlayerId == Guid.Empty)
             return;
         var appearance = _project.AppearanceFor(_selectedPlayerId);
+        var player = SelectedPlayer();
+        var uniform = _project.ActiveUniformFor(player.Team!.Id);
         _height.Value = appearance.HeightMeters;
         _bodyBuild.Select((int)appearance.BodyBuild);
         _skinTone.Color = ToGodot(appearance.SkinTone);
         _hairStyle.Select((int)appearance.HairStyle);
         _hairColor.Color = ToGodot(appearance.HairColor);
-        _jerseyNumber.Value = appearance.JerseyNumber;
-        _primaryColor.Color = ToGodot(appearance.PrimaryUniformColor);
-        _secondaryColor.Color = ToGodot(appearance.SecondaryUniformColor);
-        _flagColor.Color = ToGodot(appearance.FlagColor);
+        _jerseyNumber.Value = player.JerseyNumber;
+        _primaryColor.Color = ToGodot(uniform.PrimaryColor);
+        _secondaryColor.Color = ToGodot(uniform.SecondaryColor);
+        _flagColor.Color = ToGodot(uniform.FlagColor);
         foreach (var accessory in _accessoryChecks)
             accessory.Value.ButtonPressed = appearance.Accessories.HasFlag(accessory.Key);
     }
@@ -179,8 +188,49 @@ public partial class PlayerStudioPanel : PanelContainer
     private void OnHairColorChanged(Color color) =>
         UpdateAppearance(appearance => appearance.SetHair(appearance.HairStyle, ToDomain(color)));
 
-    private void OnUniformColorChanged(Color _) =>
-        UpdateAppearance(appearance => appearance.SetUniformColors(ToDomain(_primaryColor.Color), ToDomain(_secondaryColor.Color)));
+    private void OnUniformColorChanged(Color _)
+    {
+        if (_refreshing)
+            return;
+        var appearance = _project.AppearanceFor(_selectedPlayerId);
+        var uniform = SelectedUniform();
+        var primary = ToDomain(_primaryColor.Color);
+        var secondary = ToDomain(_secondaryColor.Color);
+        appearance.SetUniformColors(primary, secondary);
+        uniform.SetPrimaryColors(primary, secondary, uniform.AccentColor);
+        AppearanceChanged?.Invoke(_selectedPlayerId);
+    }
+
+    private void OnFlagColorChanged(Color color)
+    {
+        if (_refreshing)
+            return;
+        var flag = ToDomain(color);
+        _project.AppearanceFor(_selectedPlayerId).SetFlagColor(flag);
+        SelectedUniform().SetFlagColor(flag);
+        AppearanceChanged?.Invoke(_selectedPlayerId);
+    }
+
+    private void OnJerseyNumberChanged(double value)
+    {
+        if (_refreshing)
+            return;
+        try
+        {
+            var player = SelectedPlayer();
+            player.Team!.ChangeJerseyNumber(player.Id, (int)value);
+            _project.AppearanceFor(player.Id).SetJerseyNumber(player.JerseyNumber);
+            UpdatePlayerLabel(player);
+            AppearanceChanged?.Invoke(player.Id);
+        }
+        catch (Exception exception)
+        {
+            StatusChanged?.Invoke(exception.Message);
+            _refreshing = true;
+            RefreshEditor();
+            _refreshing = false;
+        }
+    }
 
     private void OnAccessoriesChanged(bool _)
     {
@@ -198,11 +248,21 @@ public partial class PlayerStudioPanel : PanelContainer
         if (_refreshing || _selectedPlayerId == Guid.Empty)
             return;
         update(_project.AppearanceFor(_selectedPlayerId));
-        var index = _playerIds.IndexOf(_selectedPlayerId);
-        var player = _game.Gold.Roster.Concat(_game.Navy.Roster).First(candidate => candidate.Id == _selectedPlayerId);
-        if (index >= 0)
-            _playerOption.SetItemText(index, $"{player.Team?.Name} #{_project.AppearanceFor(player.Id).JerseyNumber} {player.Name}");
+        UpdatePlayerLabel(SelectedPlayer());
         AppearanceChanged?.Invoke(_selectedPlayerId);
+    }
+
+    private Player SelectedPlayer() =>
+        _game.Gold.Roster.Concat(_game.Navy.Roster).First(player => player.Id == _selectedPlayerId);
+
+    private UniformDefinition SelectedUniform() =>
+        _project.ActiveUniformFor(SelectedPlayer().Team!.Id);
+
+    private void UpdatePlayerLabel(Player player)
+    {
+        var index = _playerIds.IndexOf(player.Id);
+        if (index >= 0)
+            _playerOption.SetItemText(index, $"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
     }
 
     private void AddAccessory(Node parent, string label, PlayerAccessories accessory)

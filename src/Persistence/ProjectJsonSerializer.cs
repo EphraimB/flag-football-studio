@@ -73,6 +73,8 @@ public sealed class ProjectJsonSerializer
         public List<CameraData> Cameras { get; set; } = [];
         public List<CameraCutData> CameraCuts { get; set; } = [];
         public List<PlayerAppearanceData> PlayerAppearances { get; set; } = [];
+        public List<UniformData> Uniforms { get; set; } = [];
+        public Dictionary<Guid, Guid> ActiveUniformIds { get; set; } = [];
 
         public static GameProjectData FromDomain(GameProject project) => new()
         {
@@ -90,7 +92,9 @@ public sealed class ProjectJsonSerializer
             Plays = project.Plays.Select(PlayData.FromDomain).ToList(),
             Cameras = project.Cameras.Select(CameraData.FromDomain).ToList(),
             CameraCuts = project.CameraCuts.Select(CameraCutData.FromDomain).ToList(),
-            PlayerAppearances = project.PlayerAppearances.Values.Select(PlayerAppearanceData.FromDomain).ToList()
+            PlayerAppearances = project.PlayerAppearances.Values.Select(PlayerAppearanceData.FromDomain).ToList(),
+            Uniforms = project.Uniforms.Select(UniformData.FromDomain).ToList(),
+            ActiveUniformIds = project.ActiveUniformIds.ToDictionary(entry => entry.Key, entry => entry.Value)
         };
 
         public GameProject ToDomain()
@@ -99,6 +103,8 @@ public sealed class ProjectJsonSerializer
             project.SetGameState(HomeScore, AwayScore, Quarter, GameClockSeconds, Down, Distance, PossessionTeamId);
             foreach (var appearance in PlayerAppearances)
                 project.SetPlayerAppearance(appearance.ToDomain());
+            if (Uniforms.Count > 0)
+                project.ReplaceUniformLibrary(Uniforms.Select(uniform => uniform.ToDomain()), ActiveUniformIds);
             foreach (var play in Plays)
                 project.AddPlay(play.ToDomain());
             foreach (var camera in Cameras)
@@ -106,6 +112,59 @@ public sealed class ProjectJsonSerializer
             foreach (var cut in CameraCuts)
                 project.AddCameraCut(cut.ToDomain());
             return project;
+        }
+    }
+
+    private sealed class UniformData
+    {
+        public Guid Id { get; set; }
+        public Guid TeamId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public AppearanceColor PrimaryColor { get; set; }
+        public AppearanceColor SecondaryColor { get; set; }
+        public AppearanceColor AccentColor { get; set; }
+        public AppearanceColor JerseyBaseColor { get; set; }
+        public AppearanceColor SleeveTrimColor { get; set; }
+        public AppearanceColor CollarTrimColor { get; set; }
+        public AppearanceColor NumberColor { get; set; }
+        public AppearanceColor NumberOutlineColor { get; set; }
+        public AppearanceColor ShortsColor { get; set; }
+        public AppearanceColor FlagColor { get; set; }
+        public string TeamWordmark { get; set; } = string.Empty;
+        public bool ShowPlayerNameOnBack { get; set; }
+        public UniformDesignation Designation { get; set; }
+
+        public static UniformData FromDomain(UniformDefinition uniform) => new()
+        {
+            Id = uniform.Id,
+            TeamId = uniform.TeamId,
+            Name = uniform.Name,
+            PrimaryColor = uniform.PrimaryColor,
+            SecondaryColor = uniform.SecondaryColor,
+            AccentColor = uniform.AccentColor,
+            JerseyBaseColor = uniform.JerseyBaseColor,
+            SleeveTrimColor = uniform.SleeveTrimColor,
+            CollarTrimColor = uniform.CollarTrimColor,
+            NumberColor = uniform.NumberColor,
+            NumberOutlineColor = uniform.NumberOutlineColor,
+            ShortsColor = uniform.ShortsColor,
+            FlagColor = uniform.FlagColor,
+            TeamWordmark = uniform.TeamWordmark,
+            ShowPlayerNameOnBack = uniform.ShowPlayerNameOnBack,
+            Designation = uniform.Designation
+        };
+
+        public UniformDefinition ToDomain()
+        {
+            var uniform = new UniformDefinition(Id, TeamId, Name, Designation);
+            uniform.SetPrimaryColors(PrimaryColor, SecondaryColor, AccentColor);
+            uniform.SetJerseyColors(JerseyBaseColor, SleeveTrimColor, CollarTrimColor);
+            uniform.SetNumberColors(NumberColor, NumberOutlineColor);
+            uniform.SetShortsColor(ShortsColor);
+            uniform.SetFlagColor(FlagColor);
+            uniform.SetWordmark(TeamWordmark);
+            uniform.SetShowPlayerNameOnBack(ShowPlayerNameOnBack);
+            return uniform;
         }
     }
 

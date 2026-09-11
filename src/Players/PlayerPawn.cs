@@ -6,13 +6,15 @@ namespace FlagFootballStudio.Presentation;
 public partial class PlayerPawn : Node3D
 {
     private PlayerAppearance _appearance = null!;
+    private UniformDefinition _uniform = null!;
 
     public Player? Player { get; private set; }
 
-    public void Configure(Player player, PlayerAppearance appearance)
+    public void Configure(Player player, PlayerAppearance appearance, UniformDefinition uniform)
     {
         Player = player;
         _appearance = appearance;
+        _uniform = uniform;
     }
 
     public override void _Ready() => RebuildVisuals();
@@ -20,6 +22,21 @@ public partial class PlayerPawn : Node3D
     public void ApplyAppearance(PlayerAppearance appearance)
     {
         _appearance = appearance;
+        if (IsNodeReady())
+            RebuildVisuals();
+    }
+
+    public void ApplyUniform(UniformDefinition uniform)
+    {
+        _uniform = uniform;
+        if (IsNodeReady())
+            RebuildVisuals();
+    }
+
+    public void ApplyPresentation(PlayerAppearance appearance, UniformDefinition uniform)
+    {
+        _appearance = appearance;
+        _uniform = uniform;
         if (IsNodeReady())
             RebuildVisuals();
     }
@@ -46,19 +63,29 @@ public partial class PlayerPawn : Node3D
         };
         AddChild(visual);
 
-        var primary = CreateMaterial(ToGodot(_appearance.PrimaryUniformColor));
-        var secondary = CreateMaterial(ToGodot(_appearance.SecondaryUniformColor));
+        var primary = CreateMaterial(ToGodot(_uniform.PrimaryColor));
+        var secondary = CreateMaterial(ToGodot(_uniform.SecondaryColor));
+        var accent = CreateMaterial(ToGodot(_uniform.AccentColor));
+        var jersey = CreateMaterial(ToGodot(_uniform.JerseyBaseColor));
+        var sleeveTrim = CreateMaterial(ToGodot(_uniform.SleeveTrimColor));
+        var collarTrim = CreateMaterial(ToGodot(_uniform.CollarTrimColor));
+        var shorts = CreateMaterial(ToGodot(_uniform.ShortsColor));
         var skin = CreateMaterial(ToGodot(_appearance.SkinTone));
         var hair = CreateMaterial(ToGodot(_appearance.HairColor));
-        var flag = CreateMaterial(ToGodot(_appearance.FlagColor));
+        var flag = CreateMaterial(ToGodot(_uniform.FlagColor));
 
-        AddMesh(visual, "Body", new CapsuleMesh { Radius = 0.48f, Height = 1.55f }, new Vector3(0, 1.25f, 0), primary);
+        AddMesh(visual, "Body", new CapsuleMesh { Radius = 0.48f, Height = 1.55f }, new Vector3(0, 1.25f, 0), jersey);
+        AddMesh(visual, "Shoulders", new BoxMesh { Size = new Vector3(1.08f, 0.28f, 0.62f) }, new Vector3(0, 1.65f, 0), primary);
+        AddMesh(visual, "AccentStripe", new BoxMesh { Size = new Vector3(0.12f, 0.8f, 0.04f) }, new Vector3(0, 1.35f, -0.49f), accent);
         AddMesh(visual, "Belt", new BoxMesh { Size = new Vector3(0.9f, 0.14f, 0.62f) }, new Vector3(0, 0.92f, 0), secondary);
+        AddMesh(visual, "Collar", new CylinderMesh { TopRadius = 0.27f, BottomRadius = 0.31f, Height = 0.1f }, new Vector3(0, 1.92f, 0), collarTrim);
         AddMesh(visual, "Head", new SphereMesh { Radius = 0.34f, Height = 0.68f }, new Vector3(0, 2.35f, 0), skin);
-        AddMesh(visual, "LeftLeg", new CapsuleMesh { Radius = 0.16f, Height = 0.8f }, new Vector3(-0.22f, 0.45f, 0), secondary);
-        AddMesh(visual, "RightLeg", new CapsuleMesh { Radius = 0.16f, Height = 0.8f }, new Vector3(0.22f, 0.45f, 0), secondary);
+        AddMesh(visual, "LeftLeg", new CapsuleMesh { Radius = 0.16f, Height = 0.8f }, new Vector3(-0.22f, 0.45f, 0), shorts);
+        AddMesh(visual, "RightLeg", new CapsuleMesh { Radius = 0.16f, Height = 0.8f }, new Vector3(0.22f, 0.45f, 0), shorts);
         AddMesh(visual, "LeftArm", new CapsuleMesh { Radius = 0.13f, Height = 0.75f }, new Vector3(-0.58f, 1.35f, 0), skin);
         AddMesh(visual, "RightArm", new CapsuleMesh { Radius = 0.13f, Height = 0.75f }, new Vector3(0.58f, 1.35f, 0), skin);
+        AddMesh(visual, "LeftSleeveTrim", new CylinderMesh { TopRadius = 0.16f, BottomRadius = 0.16f, Height = 0.16f }, new Vector3(-0.58f, 1.62f, 0), sleeveTrim);
+        AddMesh(visual, "RightSleeveTrim", new CylinderMesh { TopRadius = 0.16f, BottomRadius = 0.16f, Height = 0.16f }, new Vector3(0.58f, 1.62f, 0), sleeveTrim);
         AddMesh(visual, "LeftFlag", new BoxMesh { Size = new Vector3(0.12f, 0.55f, 0.08f) }, new Vector3(-0.55f, 1.15f, 0), flag);
         AddMesh(visual, "RightFlag", new BoxMesh { Size = new Vector3(0.12f, 0.55f, 0.08f) }, new Vector3(0.55f, 1.15f, 0), flag);
         AddHair(visual, hair);
@@ -66,14 +93,38 @@ public partial class PlayerPawn : Node3D
 
         var number = new Label3D
         {
-            Text = _appearance.JerseyNumber.ToString(),
+            Text = Player?.JerseyNumber.ToString() ?? "?",
             Position = new Vector3(0, 1.45f, -0.49f),
             FontSize = 48,
             OutlineSize = 8,
-            Modulate = Colors.White,
+            Modulate = ToGodot(_uniform.NumberColor),
+            OutlineModulate = ToGodot(_uniform.NumberOutlineColor),
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled
         };
         visual.AddChild(number);
+
+        var wordmark = new Label3D
+        {
+            Text = _uniform.TeamWordmark,
+            Position = new Vector3(0, 1.73f, -0.5f),
+            FontSize = 22,
+            Modulate = ToGodot(_uniform.NumberColor),
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled
+        };
+        visual.AddChild(wordmark);
+
+        if (_uniform.ShowPlayerNameOnBack && Player is not null)
+        {
+            var playerName = new Label3D
+            {
+                Text = Player.Name.ToUpperInvariant(),
+                Position = new Vector3(0, 1.72f, 0.5f),
+                RotationDegrees = new Vector3(0, 180, 0),
+                FontSize = 18,
+                Modulate = ToGodot(_uniform.NumberColor)
+            };
+            visual.AddChild(playerName);
+        }
     }
 
     private void AddHair(Node parent, Material material)
