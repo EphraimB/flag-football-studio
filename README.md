@@ -3,10 +3,11 @@
 Flag Football Studio is an open-source 3D filmmaking studio for designing,
 directing, and rendering fully customizable flag football games.
 
-The Game Director foundation demonstrates the core architecture with a
-primitive 3D field, two five-player teams, a top-down play editor, persistent
-play libraries, a game-state scoreboard, and simple tween-based playback. It
-is an architectural prototype rather than a gameplay simulation.
+The director prototype demonstrates the core architecture with a primitive 3D
+field, two five-player teams, a top-down play editor, persistent play and camera
+libraries, a game-state scoreboard, configurable camera previews, and simple
+tween-based playback. It is an architectural prototype rather than a gameplay
+simulation.
 
 ## Repository layout
 
@@ -34,6 +35,12 @@ is an architectural prototype rather than a gameplay simulation.
   on Godot; the presentation layer supplies the platform-specific save path.
 - `GameDirectorPanel` presents the scoreboard and coordinates play-library
   commands while `Main` applies those commands to domain state.
+- `CameraDefinition` and `CameraCut` are Godot-independent descriptions of
+  reusable cameras and per-play cut timing. `GameProject` owns both collections,
+  and the existing JSON project file persists them.
+- `CameraDirectorPanel` edits camera data. `CameraDirectorController` is the
+  presentation adapter that positions the Godot `Camera3D`, attaches Player POV
+  views, and applies timed cuts during playback.
 - `data/` contains project-owned, non-code data for teams, uniforms, and
   playbooks.
 - `project.godot` and Godot-generated import metadata remain at the project
@@ -75,6 +82,22 @@ movement.
 The prototype uses one automatic save slot at
 `user://flag-football-studio/game-project.json`. Godot maps `user://` to the
 current operating system's per-user application-data directory.
+
+### Camera Director controls
+
+- Select a camera in the camera list to make it active and preview it.
+- **New**, **Rename**, **Duplicate**, and **Delete** manage project cameras.
+- **Type** selects Broadcast Wide, Sideline Low, End Zone, Player POV, or Free
+  Camera.
+- For **Player POV**, choose a Gold or Navy player from **POV Player**.
+- For **Free Camera**, edit position, rotation in degrees, and FOV. Changes are
+  previewed immediately; **Preview** reapplies the selected camera at any time.
+- Enter a time in seconds and choose **Add Cut** to add the selected camera to
+  the current play's cut list. Select a cut and choose **Delete Cut** to remove
+  it. Timed cuts run when **Run Play** is pressed.
+
+Camera definitions and cuts are included whenever **Save Project** is used and
+are restored by **Load Project**.
 
 The prototype intentionally uses only Godot primitive geometry. Player Creator,
 Jersey Editor, AI, dialogue, crowds, procedural humans, advanced physics,

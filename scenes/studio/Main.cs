@@ -21,9 +21,13 @@ public partial class Main : Node3D
     private Game _game = null!;
     private GameProject _project = null!;
     private PlayDefinition _play = null!;
+    private Guid _selectedCameraId;
     private FootballView _football = null!;
+    private Camera3D _previewCamera = null!;
     private PlayDirectorPanel _director = null!;
     private GameDirectorPanel _gameDirector = null!;
+    private CameraDirectorPanel _cameraDirector = null!;
+    private CameraDirectorController _cameraController = null!;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
 
@@ -32,6 +36,7 @@ public partial class Main : Node3D
         _game = Game.CreatePrototype();
         _project = GameProject.CreatePrototype(_game);
         _play = _project.Plays[0];
+        _selectedCameraId = _project.Cameras[0].Id;
         AddChild(_fieldScene.Instantiate());
         BuildLightingAndCamera();
         SpawnTeam(_game.Gold, GoldColor, 0);
@@ -41,6 +46,11 @@ public partial class Main : Node3D
         AddChild(_football);
         ApplyFormation();
         BuildUi();
+
+        _cameraController = new CameraDirectorController { Name = "CameraDirectorController" };
+        AddChild(_cameraController);
+        _cameraController.Configure(_previewCamera, this, _pawns);
+        PreviewSelectedCamera();
 
         _sequence = new PlaySequenceController { Name = "PlaySequenceController" };
         AddChild(_sequence);
@@ -56,6 +66,17 @@ public partial class Main : Node3D
         _gameDirector.DeleteRequested += OnDeletePlayRequested;
         _gameDirector.SaveRequested += OnSaveRequested;
         _gameDirector.LoadRequested += OnLoadRequested;
+        _cameraDirector.CameraSelected += OnCameraSelected;
+        _cameraDirector.CreateRequested += OnCreateCameraRequested;
+        _cameraDirector.RenameRequested += OnRenameCameraRequested;
+        _cameraDirector.DuplicateRequested += OnDuplicateCameraRequested;
+        _cameraDirector.DeleteRequested += OnDeleteCameraRequested;
+        _cameraDirector.TypeChanged += OnCameraTypeChanged;
+        _cameraDirector.FreeCameraChanged += OnFreeCameraChanged;
+        _cameraDirector.PlayerPovChanged += OnPlayerPovChanged;
+        _cameraDirector.PreviewRequested += OnCameraPreviewRequested;
+        _cameraDirector.AddCutRequested += OnAddCameraCutRequested;
+        _cameraDirector.DeleteCutRequested += OnDeleteCameraCutRequested;
     }
 
     private void SpawnTeam(Team team, Color color, float rotationY)
@@ -94,14 +115,14 @@ public partial class Main : Node3D
         };
         AddChild(sun);
 
-        var camera = new Camera3D
+        _previewCamera = new Camera3D
         {
             Position = new Vector3(15, 19, 24),
             Fov = 52,
             Current = true
         };
-        AddChild(camera);
-        camera.LookAt(new Vector3(0, 0, 2), Vector3.Up);
+        AddChild(_previewCamera);
+        _previewCamera.LookAt(new Vector3(0, 0, 2), Vector3.Up);
     }
 
     private void BuildUi()
@@ -120,6 +141,17 @@ public partial class Main : Node3D
         canvas.AddChild(_gameDirector);
         _gameDirector.Configure(_project, _play.Id);
         _statusLabel = _gameDirector.StatusLabel;
+
+        _cameraDirector = new CameraDirectorPanel
+        {
+            Name = "CameraDirector",
+            OffsetLeft = 16,
+            OffsetTop = 420,
+            OffsetRight = 390,
+            OffsetBottom = 884
+        };
+        canvas.AddChild(_cameraDirector);
+        _cameraDirector.Configure(_project, _game, _play, _selectedCameraId);
 
         _director = new PlayDirectorPanel
         {
@@ -176,6 +208,9 @@ public partial class Main : Node3D
         _sequence.SetPlay(_play, _football.Position);
         _director.SetEditingEnabled(false);
         _gameDirector.SetInteractionEnabled(false);
+        _cameraDirector.SetInteractionEnabled(false);
+        _cameraController.StopCuts();
+        _ = _cameraController.PlayCutsAsync(_project, _play);
         try
         {
             await _sequence.RunAsync();
@@ -189,6 +224,9 @@ public partial class Main : Node3D
         {
             _director.SetEditingEnabled(true);
             _gameDirector.SetInteractionEnabled(true);
+            _cameraDirector.SetInteractionEnabled(true);
+            _cameraController.StopCuts();
+            PreviewSelectedCamera();
         }
     }
 
@@ -279,8 +317,10 @@ public partial class Main : Node3D
         _play = _project.Play(playId);
         _director.SetPlay(_play);
         _gameDirector.SetActivePlay(_play.Id);
+        _cameraDirector.SetPlay(_play);
         ApplyFormation();
         _sequence.SetPlay(_play, _football.Position);
+        PreviewSelectedCamera();
         _gameDirector.SetStatus(status);
     }
 
@@ -297,13 +337,153 @@ public partial class Main : Node3D
 
         _project = project;
         _game = new Game(project.HomeTeam, project.AwayTeam);
+        EnsureCameraLibrary();
+        _selectedCameraId = _project.Cameras[0].Id;
         SpawnTeam(_game.Gold, GoldColor, 0);
         SpawnTeam(_game.Navy, NavyColor, Mathf.Pi);
         _play = project.Plays[0];
         _director.SetGameAndPlay(_game, _play);
         _gameDirector.SetProject(_project, _play.Id);
+        _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         ApplyFormation();
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel);
+        _cameraController.Configure(_previewCamera, this, _pawns);
+        PreviewSelectedCamera();
+    }
+
+    private void OnCameraSelected(Guid cameraId)
+    {
+        _selectedCameraId = cameraId;
+        PreviewSelectedCamera();
+    }
+
+    private void OnCreateCameraRequested()
+    {
+        var camera = new CameraDefinition(Guid.NewGuid(), $"Camera {_project.Cameras.Count + 1}", CameraType.BroadcastWide);
+        _project.AddCamera(camera);
+        SelectCamera(camera.Id, "Camera created");
+    }
+
+    private void OnRenameCameraRequested(Guid cameraId, string name)
+    {
+        try
+        {
+            _project.Camera(cameraId).Rename(name);
+            _cameraDirector.RefreshAll();
+            _gameDirector.SetStatus("Camera renamed");
+        }
+        catch (Exception exception)
+        {
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnDuplicateCameraRequested(Guid cameraId)
+    {
+        var source = _project.Camera(cameraId);
+        var duplicate = source.Duplicate($"{source.Name} Copy");
+        _project.AddCamera(duplicate);
+        SelectCamera(duplicate.Id, "Camera duplicated");
+    }
+
+    private void OnDeleteCameraRequested(Guid cameraId)
+    {
+        if (_project.Cameras.Count == 1)
+        {
+            _gameDirector.SetStatus("A project must keep at least one camera");
+            return;
+        }
+
+        var index = _project.Cameras.ToList().FindIndex(camera => camera.Id == cameraId);
+        _project.RemoveCamera(cameraId);
+        var nextIndex = Math.Clamp(index, 0, _project.Cameras.Count - 1);
+        SelectCamera(_project.Cameras[nextIndex].Id, "Camera deleted");
+    }
+
+    private void OnCameraTypeChanged(Guid cameraId, CameraType type)
+    {
+        var camera = _project.Camera(cameraId);
+        camera.SetType(type);
+        if (type == CameraType.PlayerPov && !camera.PlayerId.HasValue)
+            camera.SetPlayer(_play.QuarterbackId);
+        _cameraDirector.RefreshAll();
+        PreviewSelectedCamera();
+    }
+
+    private void OnFreeCameraChanged(Guid cameraId, CameraVector position, CameraVector rotation, float fov)
+    {
+        try
+        {
+            _project.Camera(cameraId).SetFreeCamera(position, rotation, fov);
+            PreviewSelectedCamera();
+        }
+        catch (Exception exception)
+        {
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnPlayerPovChanged(Guid cameraId, Guid? playerId)
+    {
+        _project.Camera(cameraId).SetPlayer(playerId);
+        PreviewSelectedCamera();
+    }
+
+    private void OnCameraPreviewRequested(Guid cameraId)
+    {
+        _selectedCameraId = cameraId;
+        PreviewSelectedCamera();
+    }
+
+    private void OnAddCameraCutRequested(Guid cameraId, double timeSeconds)
+    {
+        try
+        {
+            _project.AddCameraCut(new CameraCut(Guid.NewGuid(), _play.Id, cameraId, timeSeconds));
+            _cameraDirector.RefreshAll();
+            _gameDirector.SetStatus($"Camera cut added at {timeSeconds:0.0}s");
+        }
+        catch (Exception exception)
+        {
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnDeleteCameraCutRequested(Guid cutId)
+    {
+        if (_project.RemoveCameraCut(cutId))
+        {
+            _cameraDirector.RefreshAll();
+            _gameDirector.SetStatus("Camera cut deleted");
+        }
+    }
+
+    private void SelectCamera(Guid cameraId, string status)
+    {
+        _selectedCameraId = cameraId;
+        _cameraDirector.SetActiveCamera(cameraId);
+        PreviewSelectedCamera();
+        _gameDirector.SetStatus(status);
+    }
+
+    private void PreviewSelectedCamera()
+    {
+        try
+        {
+            _cameraController.Preview(_project.Camera(_selectedCameraId), _play);
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void EnsureCameraLibrary()
+    {
+        if (_project.Cameras.Count > 0)
+            return;
+        _project.AddCamera(new CameraDefinition(Guid.NewGuid(), "Broadcast Wide", CameraType.BroadcastWide));
     }
 
     private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);

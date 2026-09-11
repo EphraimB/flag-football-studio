@@ -70,6 +70,8 @@ public sealed class ProjectJsonSerializer
         public int Distance { get; set; }
         public Guid PossessionTeamId { get; set; }
         public List<PlayData> Plays { get; set; } = [];
+        public List<CameraData> Cameras { get; set; } = [];
+        public List<CameraCutData> CameraCuts { get; set; } = [];
 
         public static GameProjectData FromDomain(GameProject project) => new()
         {
@@ -84,7 +86,9 @@ public sealed class ProjectJsonSerializer
             Down = project.Down,
             Distance = project.Distance,
             PossessionTeamId = project.Possession.Id,
-            Plays = project.Plays.Select(PlayData.FromDomain).ToList()
+            Plays = project.Plays.Select(PlayData.FromDomain).ToList(),
+            Cameras = project.Cameras.Select(CameraData.FromDomain).ToList(),
+            CameraCuts = project.CameraCuts.Select(CameraCutData.FromDomain).ToList()
         };
 
         public GameProject ToDomain()
@@ -93,8 +97,60 @@ public sealed class ProjectJsonSerializer
             project.SetGameState(HomeScore, AwayScore, Quarter, GameClockSeconds, Down, Distance, PossessionTeamId);
             foreach (var play in Plays)
                 project.AddPlay(play.ToDomain());
+            foreach (var camera in Cameras)
+                project.AddCamera(camera.ToDomain());
+            foreach (var cut in CameraCuts)
+                project.AddCameraCut(cut.ToDomain());
             return project;
         }
+    }
+
+    private sealed class CameraData
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public CameraType Type { get; set; }
+        public CameraVector Position { get; set; }
+        public CameraVector RotationDegrees { get; set; }
+        public float FieldOfView { get; set; }
+        public Guid? PlayerId { get; set; }
+
+        public static CameraData FromDomain(CameraDefinition camera) => new()
+        {
+            Id = camera.Id,
+            Name = camera.Name,
+            Type = camera.Type,
+            Position = camera.Position,
+            RotationDegrees = camera.RotationDegrees,
+            FieldOfView = camera.FieldOfView,
+            PlayerId = camera.PlayerId
+        };
+
+        public CameraDefinition ToDomain()
+        {
+            var camera = new CameraDefinition(Id, Name, Type);
+            camera.SetFreeCamera(Position, RotationDegrees, FieldOfView);
+            camera.SetPlayer(PlayerId);
+            return camera;
+        }
+    }
+
+    private sealed class CameraCutData
+    {
+        public Guid Id { get; set; }
+        public Guid PlayId { get; set; }
+        public Guid CameraId { get; set; }
+        public double TimeSeconds { get; set; }
+
+        public static CameraCutData FromDomain(CameraCut cut) => new()
+        {
+            Id = cut.Id,
+            PlayId = cut.PlayId,
+            CameraId = cut.CameraId,
+            TimeSeconds = cut.TimeSeconds
+        };
+
+        public CameraCut ToDomain() => new(Id, PlayId, CameraId, TimeSeconds);
     }
 
     private sealed class TeamData

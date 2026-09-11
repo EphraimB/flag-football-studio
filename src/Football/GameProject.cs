@@ -8,7 +8,11 @@ namespace FlagFootballStudio.Domain;
 public sealed class GameProject
 {
     private readonly List<PlayDefinition> _plays = [];
+    private readonly List<CameraDefinition> _cameras = [];
+    private readonly List<CameraCut> _cameraCuts = [];
     private readonly ReadOnlyCollection<PlayDefinition> _readOnlyPlays;
+    private readonly ReadOnlyCollection<CameraDefinition> _readOnlyCameras;
+    private readonly ReadOnlyCollection<CameraCut> _readOnlyCameraCuts;
 
     public GameProject(Guid id, string name, Team homeTeam, Team awayTeam)
     {
@@ -30,6 +34,8 @@ public sealed class GameProject
         Down = 1;
         Distance = 10;
         _readOnlyPlays = _plays.AsReadOnly();
+        _readOnlyCameras = _cameras.AsReadOnly();
+        _readOnlyCameraCuts = _cameraCuts.AsReadOnly();
     }
 
     public Guid Id { get; }
@@ -44,6 +50,8 @@ public sealed class GameProject
     public int Distance { get; private set; }
     public Team Possession { get; private set; }
     public IReadOnlyList<PlayDefinition> Plays => _readOnlyPlays;
+    public IReadOnlyList<CameraDefinition> Cameras => _readOnlyCameras;
+    public IReadOnlyList<CameraCut> CameraCuts => _readOnlyCameraCuts;
 
     public void SetGameState(
         int homeScore,
@@ -89,7 +97,10 @@ public sealed class GameProject
     public bool RemovePlay(Guid playId)
     {
         var play = _plays.FirstOrDefault(candidate => candidate.Id == playId);
-        return play is not null && _plays.Remove(play);
+        if (play is null)
+            return false;
+        _cameraCuts.RemoveAll(cut => cut.PlayId == playId);
+        return _plays.Remove(play);
     }
 
     public void ReplacePlay(Guid playId, PlayDefinition replacement)
@@ -107,11 +118,61 @@ public sealed class GameProject
         _plays.FirstOrDefault(play => play.Id == playId)
         ?? throw new KeyNotFoundException("The requested play is not in this project.");
 
+    public void AddCamera(CameraDefinition camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        if (_cameras.Any(existing => existing.Id == camera.Id))
+            throw new InvalidOperationException("The camera is already in this project.");
+        _cameras.Add(camera);
+    }
+
+    public bool RemoveCamera(Guid cameraId)
+    {
+        var camera = _cameras.FirstOrDefault(candidate => candidate.Id == cameraId);
+        if (camera is null)
+            return false;
+        _cameraCuts.RemoveAll(cut => cut.CameraId == cameraId);
+        return _cameras.Remove(camera);
+    }
+
+    public CameraDefinition Camera(Guid cameraId) =>
+        _cameras.FirstOrDefault(camera => camera.Id == cameraId)
+        ?? throw new KeyNotFoundException("The requested camera is not in this project.");
+
+    public void AddCameraCut(CameraCut cut)
+    {
+        ArgumentNullException.ThrowIfNull(cut);
+        Play(cut.PlayId);
+        Camera(cut.CameraId);
+        if (_cameraCuts.Any(existing => existing.Id == cut.Id))
+            throw new InvalidOperationException("The camera cut is already in this project.");
+        _cameraCuts.Add(cut);
+        _cameraCuts.Sort((left, right) => left.TimeSeconds.CompareTo(right.TimeSeconds));
+    }
+
+    public bool RemoveCameraCut(Guid cutId)
+    {
+        var cut = _cameraCuts.FirstOrDefault(candidate => candidate.Id == cutId);
+        return cut is not null && _cameraCuts.Remove(cut);
+    }
+
+    public IReadOnlyList<CameraCut> CameraCutsFor(Guid playId) =>
+        _cameraCuts.Where(cut => cut.PlayId == playId).OrderBy(cut => cut.TimeSeconds).ToArray();
+
     public static GameProject CreatePrototype(Game game)
     {
         ArgumentNullException.ThrowIfNull(game);
         var project = new GameProject(Guid.NewGuid(), "Gold vs Navy", game.Gold, game.Navy);
-        project.AddPlay(PlayDefinition.CreatePrototype(game));
+        var play = PlayDefinition.CreatePrototype(game);
+        project.AddPlay(play);
+        var broadcast = new CameraDefinition(Guid.NewGuid(), "Broadcast Wide", CameraType.BroadcastWide);
+        var sideline = new CameraDefinition(Guid.NewGuid(), "Sideline Low", CameraType.SidelineLow);
+        var playerPov = new CameraDefinition(Guid.NewGuid(), "Quarterback POV", CameraType.PlayerPov);
+        playerPov.SetPlayer(play.QuarterbackId);
+        project.AddCamera(broadcast);
+        project.AddCamera(sideline);
+        project.AddCamera(playerPov);
+        project.AddCameraCut(new CameraCut(Guid.NewGuid(), play.Id, broadcast.Id, 0));
         return project;
     }
 }
