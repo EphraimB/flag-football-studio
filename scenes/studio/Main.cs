@@ -92,7 +92,7 @@ public partial class Main : Node3D
                 team.Roster[index],
                 _project.AppearanceFor(team.Roster[index].Id),
                 _project.ActiveUniformFor(team.Id));
-            pawn.Rotation = new Vector3(0, rotationY, 0);
+            pawn.SetFormationFacing(rotationY);
             AddChild(pawn);
             _pawns.Add(team.Roster[index].Id, pawn);
         }
@@ -201,7 +201,11 @@ public partial class Main : Node3D
     private void ApplyFormation()
     {
         foreach (var startingPosition in _play.StartingPositions)
+        {
             _pawns[startingPosition.Key].Position = ToWorld(startingPosition.Value);
+            if (_pawns[startingPosition.Key] is PlayerPawn pawn)
+                pawn.ResetPresentationPose();
+        }
 
         var center = _game.Gold.Roster.First(player => player.Position == PlayerPosition.Center);
         var centerPosition = _play.StartingPositions[center.Id];
@@ -360,6 +364,8 @@ public partial class Main : Node3D
     {
         if (_football.GetParent() != this)
             _football.Reparent(this, false);
+        if (_previewCamera.GetParent() != this)
+            _previewCamera.Reparent(this, true);
         foreach (var pawn in _pawns.Values)
         {
             RemoveChild(pawn);

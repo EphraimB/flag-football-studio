@@ -6,9 +6,9 @@ directing, and rendering fully customizable flag football games.
 The director prototype demonstrates the core architecture with a primitive 3D
 field, two five-player teams, a top-down play editor, persistent play and camera
 libraries, a game-state scoreboard, configurable camera previews, editable
-placeholder player appearances, reusable team uniform libraries, and simple
-tween-based playback. It is an architectural prototype rather than a gameplay
-simulation.
+humanoid player appearances, reusable team uniform libraries, and deterministic
+tween-based playback with skeletal animation states. It is an architectural
+prototype rather than a gameplay simulation.
 
 ## Repository layout
 
@@ -19,10 +19,19 @@ simulation.
 - `src/Football`, `src/Players`, and `src/Teams` contain the plain C# domain
   model. `Player`, `Team`, and `Game` do not depend on Godot.
 - Godot-facing presentation classes live beside their feature areas:
-  `PlayerPawn` renders a domain player, `FieldView` builds primitive field
-  geometry, and `FootballView` renders the placeholder ball.
-- `PlaySequenceController` owns the temporary tween-based play choreography.
-  The main studio scene composes models, views, camera, lighting, and UI.
+  `PlayerPawn` adapts a domain player to the reusable `HumanoidRig`, `FieldView`
+  builds primitive field geometry, and `FootballView` renders the placeholder
+  ball.
+- `HumanoidSkeletonDefinition` is the single shared 18-bone hierarchy used by
+  every Gold and Navy player. `HumanoidRig` procedurally assembles placeholder
+  meshes on bone attachments and exposes stable eye and catch transforms.
+- `HumanoidAnimator` samples idle, jog, sprint, turn, throw, catch, and
+  flag-pull poses, blending between states before applying them to the shared
+  skeleton. It is presentation-only and does not add animation state to player
+  identity or persisted project data.
+- `PlaySequenceController` owns deterministic tween-based choreography and
+  selects humanoid animation states for each action. The main studio scene
+  composes models, views, camera, lighting, and UI.
 - `PlayDefinition` is the Godot-independent source of truth for formation
   positions, waypoint routes, defensive assignments, quarterback selection,
   and the intended receiver. Both the 2D editor and 3D playback consume it.
@@ -46,16 +55,17 @@ simulation.
   skin, hair, and optional accessories. Jersey numbers are authoritative on the
   roster `Player`; team-wide styling is authoritative on `UniformDefinition`.
   `GameProject` owns and persists the appearance collection.
-- `PlayerStudioPanel` edits appearance data, while `PlayerPawn` translates it
-  into live primitive geometry and materials. No rendering types enter the
-  appearance model.
+- `PlayerStudioPanel` edits appearance data, while `PlayerPawn` and
+  `HumanoidRig` translate it into live bone-attached primitive geometry and
+  materials. No rendering types enter the appearance model.
 - `UniformDefinition` is a Godot-independent, team-associated description of
   uniform colors, trim, typography options, and home/away designation.
   `GameProject` owns each team's saved uniform library and active selection,
   and `ProjectJsonSerializer` persists both.
 - `UniformStudioPanel` edits the uniform library. `PlayerPawn` combines an
   active team uniform with each player's roster number and individual
-  appearance to rebuild the primitive 3D presentation live.
+  appearance to rebuild the procedural humanoid presentation live without
+  replacing its stable rig anchors.
 - `data/` contains project-owned, non-code data for teams, uniforms, and
   playbooks.
 - `project.godot` and Godot-generated import metadata remain at the project
@@ -114,6 +124,10 @@ current operating system's per-user application-data directory.
 Camera definitions and cuts are included whenever **Save Project** is used and
 are restored by **Load Project**.
 
+Player POV cameras attach to the rig's head-relative `EyeAnchor`, so they follow
+head animation and remain valid when Player Studio or Uniform Studio rebuilds
+the generated presentation.
+
 ### Player Studio controls
 
 - Choose any Gold or Navy roster member from the player list.
@@ -145,6 +159,7 @@ All saved uniforms and each team's active selection are included in **Save
 Project** and restored by **Load Project**. Older project files without uniform
 data receive default Gold and Navy home/away uniforms when loaded.
 
-The prototype intentionally uses only Godot primitive geometry. Player Creator,
-AI, dialogue, crowds, procedural humans, realistic cloth, advanced physics,
-final animation, and production rendering remain future work.
+The prototype intentionally uses only Godot primitive geometry attached to a
+standardized humanoid skeleton. Realistic faces, advanced facial rigging,
+cloth simulation, motion capture, AI animation, dialogue, crowds, 360 output,
+and production rendering remain future work.

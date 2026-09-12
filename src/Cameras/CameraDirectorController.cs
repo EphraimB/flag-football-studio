@@ -84,10 +84,11 @@ public partial class CameraDirectorController : Node
         if (!definition.PlayerId.HasValue || !_pawns.TryGetValue(definition.PlayerId.Value, out var pawn))
             throw new InvalidOperationException("Select a valid player for the Player POV camera.");
 
-        if (_camera.GetParent() != pawn)
-            _camera.Reparent(pawn, false);
-        _camera.Position = new Vector3(0, 2.25f, 0.05f);
-        _camera.RotationDegrees = new Vector3(0, 180, 0);
+        var eyeAnchor = pawn is PlayerPawn playerPawn ? playerPawn.EyeAnchor : pawn;
+        if (_camera.GetParent() != eyeAnchor)
+            _camera.Reparent(eyeAnchor, false);
+        _camera.Position = Vector3.Zero;
+        _camera.RotationDegrees = Vector3.Zero;
         _camera.Fov = 75;
     }
 
