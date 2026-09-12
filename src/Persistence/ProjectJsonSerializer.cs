@@ -182,6 +182,7 @@ public sealed class ProjectJsonSerializer
         public AppearanceColor SkinTone { get; set; }
         public HairStyle HairStyle { get; set; }
         public AppearanceColor HairColor { get; set; }
+        public HairAppearanceData? Hair { get; set; }
         public int JerseyNumber { get; set; }
         public AppearanceColor PrimaryUniformColor { get; set; }
         public AppearanceColor SecondaryUniformColor { get; set; }
@@ -203,6 +204,7 @@ public sealed class ProjectJsonSerializer
             SkinTone = appearance.SkinTone,
             HairStyle = appearance.HairStyle,
             HairColor = appearance.HairColor,
+            Hair = HairAppearanceData.FromDomain(appearance.Hair),
             JerseyNumber = appearance.JerseyNumber,
             PrimaryUniformColor = appearance.PrimaryUniformColor,
             SecondaryUniformColor = appearance.SecondaryUniformColor,
@@ -225,6 +227,7 @@ public sealed class ProjectJsonSerializer
                 DefaultRatio(LegLength));
             appearance.SetSkinTone(SkinTone);
             appearance.SetHair(HairStyle, HairColor);
+            Hair?.ApplyTo(appearance.Hair);
             appearance.SetUniformColors(PrimaryUniformColor, SecondaryUniformColor);
             appearance.SetFlagColor(FlagColor);
             appearance.SetAccessories(Accessories);
@@ -233,6 +236,49 @@ public sealed class ProjectJsonSerializer
         }
 
         private static float DefaultRatio(float ratio) => ratio == 0 ? 1f : ratio;
+    }
+
+    private sealed class HairAppearanceData
+    {
+        public HairStyle Style { get; set; }
+        public float Length { get; set; }
+        public float Volume { get; set; }
+        public float HairlineHeight { get; set; }
+        public float PartPosition { get; set; }
+        public float CurlAmount { get; set; }
+        public AppearanceColor Color { get; set; }
+        public float PonytailLength { get; set; }
+        public float PonytailVolume { get; set; }
+        public float BunSize { get; set; }
+
+        public static HairAppearanceData FromDomain(HairAppearance hair) => new()
+        {
+            Style = hair.Style,
+            Length = hair.Length,
+            Volume = hair.Volume,
+            HairlineHeight = hair.HairlineHeight,
+            PartPosition = hair.PartPosition,
+            CurlAmount = hair.CurlAmount,
+            Color = hair.Color,
+            PonytailLength = hair.PonytailLength,
+            PonytailVolume = hair.PonytailVolume,
+            BunSize = hair.BunSize
+        };
+
+        public void ApplyTo(HairAppearance hair)
+        {
+            hair.SetParameters(
+                Style,
+                Length,
+                Volume,
+                HairlineHeight,
+                PartPosition,
+                CurlAmount,
+                PonytailLength,
+                PonytailVolume,
+                BunSize);
+            hair.SetColor(Color);
+        }
     }
 
     private sealed class FaceAppearanceData

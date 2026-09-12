@@ -14,11 +14,15 @@ public enum BodyBuild
 
 public enum HairStyle
 {
-    None,
-    Short,
-    Curly,
-    Mohawk,
-    Bun
+    None = 0,
+    Short = 1,
+    Curly = 2,
+    Mohawk = 3,
+    Bun = 4,
+    BuzzCut = 5,
+    Medium = 6,
+    Long = 7,
+    Ponytail = 8
 }
 
 [Flags]
@@ -50,8 +54,7 @@ public sealed class PlayerAppearance
         ArmLength = 1f;
         LegLength = 1f;
         SkinTone = new AppearanceColor(214, 167, 122);
-        HairStyle = HairStyle.Short;
-        HairColor = new AppearanceColor(48, 31, 24);
+        Hair = new HairAppearance();
         PrimaryUniformColor = new AppearanceColor(216, 169, 27);
         SecondaryUniformColor = new AppearanceColor(245, 245, 240);
         FlagColor = new AppearanceColor(255, 79, 100);
@@ -68,14 +71,15 @@ public sealed class PlayerAppearance
     public float ArmLength { get; private set; }
     public float LegLength { get; private set; }
     public AppearanceColor SkinTone { get; private set; }
-    public HairStyle HairStyle { get; private set; }
-    public AppearanceColor HairColor { get; private set; }
+    public HairStyle HairStyle => Hair.Style;
+    public AppearanceColor HairColor => Hair.Color;
     public int JerseyNumber { get; private set; }
     public AppearanceColor PrimaryUniformColor { get; private set; }
     public AppearanceColor SecondaryUniformColor { get; private set; }
     public AppearanceColor FlagColor { get; private set; }
     public PlayerAccessories Accessories { get; private set; }
     public FaceAppearance Face { get; }
+    public HairAppearance Hair { get; }
 
     public void SetHeight(float heightMeters)
     {
@@ -107,7 +111,7 @@ public sealed class PlayerAppearance
         LegLength = ValidateLengthRatio(legLength, nameof(legLength));
     }
     public void SetSkinTone(AppearanceColor color) => SkinTone = color;
-    public void SetHair(HairStyle style, AppearanceColor color) { HairStyle = style; HairColor = color; }
+    public void SetHair(HairStyle style, AppearanceColor color) => Hair.SetStyleAndColor(style, color);
 
     public void SetJerseyNumber(int jerseyNumber)
     {

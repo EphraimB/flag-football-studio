@@ -15,6 +15,7 @@ public partial class HumanoidRig : Node3D
     private HumanoidAnimator _animator = null!;
     private FacialExpressionController _facialController = null!;
     private HumanoidEyeRig _eyeRig = null!;
+    private HumanoidHairRig _hairRig = null!;
     private FaceAppearance? _faceAppearance;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
@@ -33,6 +34,12 @@ public partial class HumanoidRig : Node3D
     public float EyeSeparation => _eyeRig.EyeSeparation;
     public float EyeSize => _eyeRig.EyeSize;
     public float EyelidClosure => _eyeRig.EyelidClosure;
+    public int HairPieceCount => _hairRig.PieceCount;
+    public HairStyle HairStyle => _hairRig.Style;
+    public bool HairUsesAccessoryClearance => _hairRig.AccessoryClearanceApplied;
+    public bool HasFiniteHairGeometry => _hairRig.HasFiniteGeometry();
+    public Vector3 HairGlobalPosition => _hairRig.GlobalPosition;
+    public bool HairAttachedToHead => _hairRig.GetParent() == _attachments[HumanoidSkeletonDefinition.Head];
     public Mesh BodyMeshResource => _bodyMesh.Mesh;
     public ArrayMesh FaceMeshResource => (ArrayMesh)_faceMesh.Mesh;
     public string TopologySignature => HumanoidSkinnedMesh.TopologySignature;
@@ -82,7 +89,7 @@ public partial class HumanoidRig : Node3D
         AddDetail(HumanoidSkeletonDefinition.Hips, "RightFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(0.42f, -0.08f, 0), flag);
 
         ApplyFace(appearance.Face, skin, hair);
-        AddHair(appearance.HairStyle, hair, appearance.Face);
+        _hairRig.Configure(appearance.Hair, appearance.Face, appearance.Accessories);
         AddAccessories(appearance.Accessories, secondary, appearance.Face);
         AddUniformLabels(player, uniform);
     }
@@ -172,6 +179,9 @@ public partial class HumanoidRig : Node3D
         _eyeRig = new HumanoidEyeRig { Name = "EyeRig" };
         _attachments[HumanoidSkeletonDefinition.Head].AddChild(_eyeRig);
 
+        _hairRig = new HumanoidHairRig { Name = "HairRig" };
+        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_hairRig);
+
         _facialController = new FacialExpressionController { Name = "FacialExpressionController" };
         AddChild(_facialController);
         _facialController.PoseChanged += OnFacialPoseChanged;
@@ -231,33 +241,6 @@ public partial class HumanoidRig : Node3D
         if (_faceAppearance is not null)
             _faceMesh.Mesh = HumanoidFaceMesh.Create(_faceAppearance, pose);
         _eyeRig.SetExpressionPose(pose);
-    }
-
-    private void AddHair(HairStyle style, Material material, FaceAppearance face)
-    {
-        var crownY = 0.13f + 0.34f * face.HeadHeight;
-        switch (style)
-        {
-            case HairStyle.None:
-                return;
-            case HairStyle.Short:
-                AddDetail(HumanoidSkeletonDefinition.Head, "ShortHair", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, crownY - 0.17f, 0.02f), material, new Vector3(1.03f * face.HeadWidth, 0.48f * face.HeadHeight, 1.03f));
-                break;
-            case HairStyle.Curly:
-                for (var index = 0; index < 6; index++)
-                {
-                    var angle = Mathf.Tau * index / 6f;
-                    AddDetail(HumanoidSkeletonDefinition.Head, $"Curl{index}", new SphereMesh { Radius = 0.13f, Height = 0.26f }, new Vector3(Mathf.Cos(angle) * 0.2f * face.HeadWidth, crownY - 0.1f, Mathf.Sin(angle) * 0.18f), material);
-                }
-                break;
-            case HairStyle.Mohawk:
-                AddDetail(HumanoidSkeletonDefinition.Head, "Mohawk", new BoxMesh { Size = new Vector3(0.14f, 0.35f, 0.65f) }, new Vector3(0, crownY + 0.02f, 0), material);
-                break;
-            case HairStyle.Bun:
-                AddDetail(HumanoidSkeletonDefinition.Head, "HairCap", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, crownY - 0.18f, 0.04f), material, new Vector3(1.02f * face.HeadWidth, 0.5f * face.HeadHeight, 1.02f));
-                AddDetail(HumanoidSkeletonDefinition.Head, "Bun", new SphereMesh { Radius = 0.19f, Height = 0.38f }, new Vector3(0, crownY - 0.17f, 0.34f), material);
-                break;
-        }
     }
 
     private void AddAccessories(PlayerAccessories accessories, Material secondary, FaceAppearance face)

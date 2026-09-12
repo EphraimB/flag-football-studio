@@ -9,8 +9,8 @@ libraries, a game-state scoreboard, configurable camera previews, editable
 humanoid player appearances, reusable team uniform libraries, and deterministic
 tween-based playback with skeletal animation states. Player appearances now
 include deterministic low-poly face customization, blended expression previews,
-blinking, and gaze control. It is an architectural prototype rather than a
-gameplay simulation.
+blinking, gaze control, and reusable procedural hairstyles. It is an
+architectural prototype rather than a gameplay simulation.
 
 ## Repository layout
 
@@ -32,8 +32,12 @@ gameplay simulation.
   per-player materials, applies body proportions through bone rest/pose
   transforms, and exposes stable eye and catch transforms. `HumanoidFaceMesh`
   builds a per-player face from one fixed indexed topology and attaches it to
-  the shared head bone. Hair, uniform trim, flags, labels, and accessories
-  remain lightweight bone-attached details.
+  the shared head bone. Uniform trim, flags, labels, and accessories remain
+  lightweight bone-attached details.
+- `HumanoidHairRig` is a reusable head-bone child that rebuilds deterministic
+  low-poly pieces around the current face dimensions. It provides buzz, short,
+  medium, long, curly, ponytail, and bun styles and applies simple headband and
+  visor clearance offsets.
 - `HumanoidEyeRig` provides reusable eyeball, iris, pupil, upper-lid, and
   lower-lid geometry. It applies independently clamped horizontal and vertical
   gaze without rotating or moving the Player POV anchor.
@@ -71,7 +75,8 @@ gameplay simulation.
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
   optional accessories. Its Godot-independent `FaceAppearance` value stores
   clamped face proportions and eye color; it contains no meshes, nodes, or
-  engine vectors.
+  engine vectors. Its Godot-independent `HairAppearance` value stores style,
+  length, volume, hairline, part, curl/wave, color, ponytail, and bun settings.
   Jersey numbers are authoritative on the roster `Player`; team-wide styling
   is authoritative on `UniformDefinition`. `GameProject` owns and persists the
   appearance collection.
@@ -152,11 +157,15 @@ the generated presentation.
 
 - Choose any Gold or Navy roster member from the player list.
 - Use the **Body** tab to edit height; slim, average, athletic, or heavy build;
-  shoulder, chest, waist, and hip width; arm and leg length; skin tone; hair
-  style and color; jersey number; and the active team's primary, secondary,
-  and flag colors.
+  shoulder, chest, waist, and hip width; arm and leg length; skin tone; jersey
+  number; and the active team's primary, secondary, and flag colors.
   Jersey-number changes update the roster; team color changes update the active
   uniform.
+- Use the dedicated **Hair** tab to select None, Buzz Cut, Short, Medium, Long,
+  Curly, Ponytail, or Bun and edit length, volume, hairline height, part
+  position, curl/wave amount, color, ponytail length/volume, and bun size. A
+  legacy Mohawk option remains available so older project files retain their
+  appearance.
 - Use the dedicated **Face** tab to edit head width/height, jaw width/height,
   chin width/projection, cheekbone width/fullness, forehead height, eye
   spacing/size/vertical position, eyebrow height, nose width/length/projection,
@@ -172,6 +181,11 @@ the generated presentation.
 - Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
 - Body and face changes rebuild the selected player's presentation immediately
   in the 3D preview while preserving its skeleton and stable camera anchors.
+
+Hair length and tied-hair length use `0.50–1.50`; general and ponytail volume
+and bun size use `0.70–1.40`; hairline height uses `-0.15–0.15`; part position
+uses `-1.00–1.00`; and curl/wave amount uses `0.00–1.00`. Values are clamped in
+the engine-independent model before rendering or persistence.
 
 All player appearances are included in **Save Project** and restored by
 **Load Project**. Older project files without appearance data receive default
@@ -243,6 +257,19 @@ their full limits, moving node targets and world-space targets, repeated manual
 and deterministic automatic blinks, interpolation through every expression
 while jogging, topology invariance, and Player POV stability.
 
+### Hair validation
+
+Run the focused procedural-hair validation with:
+
+```powershell
+godot --headless --path . -- --validate-hair
+```
+
+It checks every supported hairstyle against opposite extreme head shapes,
+parameter clamps, deterministic piece counts, accessory clearance paths, JSON
+round trips, shared body and face topology, animation attachment, expression
+preservation, and Player POV stability.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -257,4 +284,9 @@ animation, or photorealistic skin shaders. Extreme settings are safe and
 deterministic but can still look stylized, angular, or show seams and minor
 overlap where feature surfaces meet. AI face generation, photo reconstruction,
 cloth simulation, dialogue, crowds, 360 output, and production rendering remain
-future work.
+future work. Hair is assembled from rigid low-poly caps, panels, capsules, and
+curl volumes attached to the head bone. It has no strands, scalp texture,
+physics, collision response, wind, secondary motion, transparency cards, or
+photorealistic shading. Clearance for the headband and visor is approximate;
+extreme face, hair, and accessory combinations may still show small gaps,
+intersections, hard seams, or exaggerated silhouettes.

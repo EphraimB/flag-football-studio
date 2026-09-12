@@ -85,12 +85,31 @@ public partial class Main : Node3D
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-expressions"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-hair"))
+            CallDeferred(nameof(RunHairValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-expressions"))
             CallDeferred(nameof(RunExpressionEyeValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-faces"))
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunHairValidation()
+    {
+        var validator = new HairFoundationValidator { Name = "HairFoundationValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Hair foundation validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunExpressionEyeValidation()

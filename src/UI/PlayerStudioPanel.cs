@@ -43,6 +43,14 @@ public partial class PlayerStudioPanel : PanelContainer
     private ColorPickerButton _skinTone = null!;
     private OptionButton _hairStyle = null!;
     private ColorPickerButton _hairColor = null!;
+    private SpinBox _hairLength = null!;
+    private SpinBox _hairVolume = null!;
+    private SpinBox _hairlineHeight = null!;
+    private SpinBox _partPosition = null!;
+    private SpinBox _curlAmount = null!;
+    private SpinBox _ponytailLength = null!;
+    private SpinBox _ponytailVolume = null!;
+    private SpinBox _bunSize = null!;
     private SpinBox _jerseyNumber = null!;
     private ColorPickerButton _primaryColor = null!;
     private ColorPickerButton _secondaryColor = null!;
@@ -80,7 +88,7 @@ public partial class PlayerStudioPanel : PanelContainer
     public void SetInteractionEnabled(bool enabled)
     {
         _playerOption.Disabled = !enabled;
-        foreach (var control in new Control[] { _height, _bodyBuild, _shoulderWidth, _chestWidth, _waistWidth, _hipWidth, _armLength, _legLength, _skinTone, _hairStyle, _hairColor, _jerseyNumber, _primaryColor, _secondaryColor, _flagColor })
+        foreach (var control in new Control[] { _height, _bodyBuild, _shoulderWidth, _chestWidth, _waistWidth, _hipWidth, _armLength, _legLength, _skinTone, _hairStyle, _hairColor, _hairLength, _hairVolume, _hairlineHeight, _partPosition, _curlAmount, _ponytailLength, _ponytailVolume, _bunSize, _jerseyNumber, _primaryColor, _secondaryColor, _flagColor })
             control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
         foreach (var check in _accessoryChecks.Values)
             check.Disabled = !enabled;
@@ -182,14 +190,6 @@ public partial class PlayerStudioPanel : PanelContainer
         _skinTone.ColorChanged += color => UpdateAppearance(appearance => appearance.SetSkinTone(ToDomain(color)));
         AddField(grid, "Skin tone", _skinTone);
 
-        _hairStyle = CreateEnumOption<HairStyle>();
-        _hairStyle.ItemSelected += OnHairStyleChanged;
-        AddField(grid, "Hair style", _hairStyle);
-
-        _hairColor = CreateColorButton();
-        _hairColor.ColorChanged += OnHairColorChanged;
-        AddField(grid, "Hair color", _hairColor);
-
         _jerseyNumber = CreateSpinBox(0, 99, 1);
         _jerseyNumber.ValueChanged += OnJerseyNumberChanged;
         AddField(grid, "Jersey number", _jerseyNumber);
@@ -214,6 +214,7 @@ public partial class PlayerStudioPanel : PanelContainer
         AddAccessory(accessories, "Visor", PlayerAccessories.Visor);
         AddAccessory(accessories, "Sleeves", PlayerAccessories.ArmSleeves);
 
+        BuildHairEditor(tabs);
         BuildFaceEditor(tabs);
     }
 
@@ -252,8 +253,7 @@ public partial class PlayerStudioPanel : PanelContainer
         _armLength.Value = appearance.ArmLength;
         _legLength.Value = appearance.LegLength;
         _skinTone.Color = ToGodot(appearance.SkinTone);
-        _hairStyle.Select((int)appearance.HairStyle);
-        _hairColor.Color = ToGodot(appearance.HairColor);
+        RefreshHairEditor(appearance.Hair);
         _jerseyNumber.Value = player.JerseyNumber;
         _primaryColor.Color = ToGodot(uniform.PrimaryColor);
         _secondaryColor.Color = ToGodot(uniform.SecondaryColor);
@@ -324,11 +324,12 @@ public partial class PlayerStudioPanel : PanelContainer
         AppearanceChanged?.Invoke(_selectedPlayerId);
     }
 
-    private void OnHairStyleChanged(long index) =>
-        UpdateAppearance(appearance => appearance.SetHair((HairStyle)_hairStyle.GetItemId((int)index), ToDomain(_hairColor.Color)));
+    private void OnHairChanged(double _) => ApplyHairEditor();
+
+    private void OnHairStyleChanged(long _) => ApplyHairEditor();
 
     private void OnHairColorChanged(Color color) =>
-        UpdateAppearance(appearance => appearance.SetHair(appearance.HairStyle, ToDomain(color)));
+        UpdateAppearance(appearance => appearance.Hair.SetColor(ToDomain(color)));
 
     private void OnUniformColorChanged(Color _)
     {
@@ -413,6 +414,93 @@ public partial class PlayerStudioPanel : PanelContainer
         check.Toggled += OnAccessoriesChanged;
         parent.AddChild(check);
         _accessoryChecks.Add(accessory, check);
+    }
+
+    private void BuildHairEditor(TabContainer tabs)
+    {
+        var scroll = new ScrollContainer
+        {
+            Name = "Hair",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
+        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 6);
+        scroll.AddChild(stack);
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(grid);
+
+        _hairStyle = CreateHairStyleOption();
+        _hairStyle.ItemSelected += OnHairStyleChanged;
+        AddField(grid, "Style", _hairStyle);
+        _hairColor = CreateColorButton();
+        _hairColor.ColorChanged += OnHairColorChanged;
+        AddField(grid, "Color", _hairColor);
+        _hairLength = AddHairSpinBox(grid, "Length", HairAppearance.MinimumLength, HairAppearance.MaximumLength);
+        _hairVolume = AddHairSpinBox(grid, "Volume", HairAppearance.MinimumVolume, HairAppearance.MaximumVolume);
+        _hairlineHeight = AddHairSpinBox(grid, "Hairline height", HairAppearance.MinimumHairlineHeight, HairAppearance.MaximumHairlineHeight, " offset");
+        _partPosition = AddHairSpinBox(grid, "Part position", HairAppearance.MinimumPartPosition, HairAppearance.MaximumPartPosition);
+        _curlAmount = AddHairSpinBox(grid, "Curl / wave", HairAppearance.MinimumCurlAmount, HairAppearance.MaximumCurlAmount);
+
+        stack.AddChild(new Label { Text = "Ponytail / bun" });
+        var tiedGrid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        tiedGrid.AddThemeConstantOverride("h_separation", 10);
+        tiedGrid.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(tiedGrid);
+        _ponytailLength = AddHairSpinBox(tiedGrid, "Ponytail length", HairAppearance.MinimumPonytailLength, HairAppearance.MaximumPonytailLength);
+        _ponytailVolume = AddHairSpinBox(tiedGrid, "Ponytail volume", HairAppearance.MinimumPonytailVolume, HairAppearance.MaximumPonytailVolume);
+        _bunSize = AddHairSpinBox(tiedGrid, "Bun size", HairAppearance.MinimumBunSize, HairAppearance.MaximumBunSize);
+        stack.AddChild(new Label
+        {
+            Text = "Tied-hair controls affect Ponytail or Bun styles.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        });
+    }
+
+    private SpinBox AddHairSpinBox(GridContainer grid, string label, double minimum, double maximum, string suffix = "×")
+    {
+        var editor = CreateSpinBox(minimum, maximum, 0.01, suffix);
+        editor.ValueChanged += OnHairChanged;
+        AddField(grid, label, editor);
+        return editor;
+    }
+
+    private void ApplyHairEditor()
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty)
+            return;
+        var hair = _project.AppearanceFor(_selectedPlayerId).Hair;
+        hair.SetParameters(
+            (HairStyle)_hairStyle.GetItemId(_hairStyle.Selected),
+            (float)_hairLength.Value,
+            (float)_hairVolume.Value,
+            (float)_hairlineHeight.Value,
+            (float)_partPosition.Value,
+            (float)_curlAmount.Value,
+            (float)_ponytailLength.Value,
+            (float)_ponytailVolume.Value,
+            (float)_bunSize.Value);
+        _refreshing = true;
+        RefreshHairEditor(hair);
+        _refreshing = false;
+        AppearanceChanged?.Invoke(_selectedPlayerId);
+    }
+
+    private void RefreshHairEditor(HairAppearance hair)
+    {
+        SelectItemById(_hairStyle, (int)hair.Style);
+        _hairColor.Color = ToGodot(hair.Color);
+        _hairLength.Value = hair.Length;
+        _hairVolume.Value = hair.Volume;
+        _hairlineHeight.Value = hair.HairlineHeight;
+        _partPosition.Value = hair.PartPosition;
+        _curlAmount.Value = hair.CurlAmount;
+        _ponytailLength.Value = hair.PonytailLength;
+        _ponytailVolume.Value = hair.PonytailVolume;
+        _bunSize.Value = hair.BunSize;
     }
 
     private void BuildFaceEditor(TabContainer tabs)
@@ -614,6 +702,25 @@ public partial class PlayerStudioPanel : PanelContainer
         var option = new OptionButton();
         foreach (var build in new[] { BodyBuild.Slim, BodyBuild.Average, BodyBuild.Athletic, BodyBuild.Heavy })
             option.AddItem(build.ToString(), (int)build);
+        return option;
+    }
+
+    private static OptionButton CreateHairStyleOption()
+    {
+        var option = new OptionButton();
+        foreach (var style in new[]
+        {
+            HairStyle.None,
+            HairStyle.BuzzCut,
+            HairStyle.Short,
+            HairStyle.Medium,
+            HairStyle.Long,
+            HairStyle.Curly,
+            HairStyle.Ponytail,
+            HairStyle.Bun,
+            HairStyle.Mohawk
+        })
+            option.AddItem(style == HairStyle.Mohawk ? "Mohawk (Legacy)" : SplitName(style.ToString()), (int)style);
         return option;
     }
 
