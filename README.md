@@ -10,7 +10,9 @@ humanoid player appearances, reusable team uniform libraries, and deterministic
 tween-based playback with skeletal animation states. Player appearances now
 include deterministic low-poly face customization, blended expression previews,
 blinking, gaze control, and reusable procedural hairstyles. It is an
-architectural prototype rather than a gameplay simulation.
+architectural prototype rather than a gameplay simulation. The presentation
+layer also includes deterministic mouth shapes intended as a future speech-
+animation foundation.
 
 ## Repository layout
 
@@ -45,6 +47,13 @@ architectural prototype rather than a gameplay simulation.
   blink, and blend state. Its deterministic poses deform the existing brow and
   mouth topology while driving eyelid openness; no expression or gaze state is
   added to the football domain or saved game project.
+- `SpeechMouthController` blends Rest, A, E, I, O, U, M/B/P, F/V, L, and W/Q
+  poses plus manual jaw and upper/lower-lip controls. `HumanoidRig` layers this
+  pose with the active expression before rebuilding the same fixed face
+  topology.
+- `HumanoidMouthRig` supplies simple reusable inner-mouth and upper/lower teeth
+  geometry on the head bone. Speech state is transient presentation data and
+  is deliberately absent from football domain models and project JSON.
 - `HumanoidAnimator` samples idle, jog, sprint, turn, throw, catch, and
   flag-pull poses, blending between states before applying them to the shared
   skeleton. It is presentation-only and does not add animation state to player
@@ -178,6 +187,10 @@ the generated presentation.
 - Under **Gaze test**, choose manual horizontal/vertical gaze, the football, or
   another roster player, then choose **Apply Gaze**. **Center** restores neutral
   manual gaze. Presentation APIs also support arbitrary world-space points.
+- Use the dedicated **Mouth** tab to preview jaw opening, lip width/fullness,
+  independent upper/lower-lip offsets, and Rest, A, E, I, O, U, M/B/P, F/V, L,
+  or W/Q mouth shapes. **Cycle Speech Shapes** previews the complete sequence
+  and returns to Rest. These controls layer over expressions but are not saved.
 - Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
 - Body and face changes rebuild the selected player's presentation immediately
   in the 3D preview while preserving its skeleton and stable camera anchors.
@@ -270,6 +283,19 @@ parameter clamps, deterministic piece counts, accessory clearance paths, JSON
 round trips, shared body and face topology, animation attachment, expression
 preservation, and Player POV stability.
 
+### Mouth validation
+
+Run the focused jaw and speech-shape validation with:
+
+```powershell
+godot --headless --path . -- --validate-mouth
+```
+
+It checks every mouth shape against opposite extreme face morphs, fixed
+topology, repeated full jaw opening, upper/lower-lip controls, smooth mouth and
+expression blending, deterministic speech-shape cycling, inner-mouth geometry,
+animation playback, hair preservation, and Player POV stability.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -279,14 +305,17 @@ eyes, brows, lips, nose, and ears. Expressions move only the procedural brows,
 mouth, and eyelids; they do not provide a facial bone rig or full cheek/jaw skin
 deformation. Eyeballs, irises, pupils, and lids are simple reusable primitives,
 with no eyelid curvature fitting, tear line, eye moisture, corneal refraction,
-or convergence model. There are no wrinkles, teeth, tongue, lip sync, speech
-animation, or photorealistic skin shaders. Extreme settings are safe and
-deterministic but can still look stylized, angular, or show seams and minor
-overlap where feature surfaces meet. AI face generation, photo reconstruction,
-cloth simulation, dialogue, crowds, 360 output, and production rendering remain
-future work. Hair is assembled from rigid low-poly caps, panels, capsules, and
-curl volumes attached to the head bone. It has no strands, scalp texture,
-physics, collision response, wind, secondary motion, transparency cards, or
-photorealistic shading. Clearance for the headband and visor is approximate;
-extreme face, hair, and accessory combinations may still show small gaps,
-intersections, hard seams, or exaggerated silhouettes.
+or convergence model. Mouth opening is vertex deformation rather than a true
+jaw bone or oral rig. The inner mouth is a dark flattened primitive and teeth
+are simple blocks layered in front of it; there are no gums, individual teeth,
+tongue, mouth collision, phoneme extraction, full lip sync, audio synthesis,
+wrinkles, or photorealistic skin shaders. Extreme settings are deterministic
+but can still look stylized, angular, or show seams and minor overlap where
+feature surfaces meet. AI dialogue, photo reconstruction, cloth simulation,
+crowds, 360 output, and production rendering remain future work. Hair is
+assembled from rigid low-poly caps, panels, capsules, and curl volumes attached
+to the head bone. It has no strands, scalp texture, physics, collision response,
+wind, secondary motion, transparency cards, or photorealistic shading.
+Clearance for the headband and visor is approximate; extreme face, hair, and
+accessory combinations may still show small gaps, intersections, hard seams, or
+exaggerated silhouettes.

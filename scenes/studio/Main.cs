@@ -82,10 +82,14 @@ public partial class Main : Node3D
         _playerStudio.BlinkRequested += OnBlinkRequested;
         _playerStudio.AutomaticBlinkChanged += OnAutomaticBlinkChanged;
         _playerStudio.GazePreviewRequested += OnGazePreviewRequested;
+        _playerStudio.MouthPreviewRequested += OnMouthPreviewRequested;
+        _playerStudio.SpeechShapeCycleRequested += OnSpeechShapeCycleRequested;
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-hair"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-mouth"))
+            CallDeferred(nameof(RunMouthValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-hair"))
             CallDeferred(nameof(RunHairValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-expressions"))
             CallDeferred(nameof(RunExpressionEyeValidation));
@@ -93,6 +97,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunMouthValidation()
+    {
+        var validator = new MouthFoundationValidator { Name = "MouthFoundationValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Mouth foundation validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunHairValidation()
@@ -655,6 +676,27 @@ public partial class Main : Node3D
                 break;
         }
         _gameDirector.SetStatus("Gaze preview updated");
+    }
+
+    private void OnMouthPreviewRequested(
+        Guid playerId,
+        SpeechMouthShape shape,
+        float jawOpen,
+        float lipWidth,
+        float lipFullness,
+        float upperLip,
+        float lowerLip)
+    {
+        var pawn = PlayerPawnFor(playerId);
+        pawn.SetMouthShape(shape);
+        pawn.SetMouthControls(jawOpen, lipWidth, lipFullness, upperLip, lowerLip);
+        _gameDirector.SetStatus($"Mouth shape: {shape}");
+    }
+
+    private void OnSpeechShapeCycleRequested(Guid playerId)
+    {
+        PlayerPawnFor(playerId).StartSpeechShapeCycle();
+        _gameDirector.SetStatus("Cycling speech shapes");
     }
 
     private void OnUniformChanged(Guid teamId)

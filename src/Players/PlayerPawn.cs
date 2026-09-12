@@ -22,6 +22,9 @@ public partial class PlayerPawn : Node3D
     public float VerticalGazeDegrees => _rig.VerticalGazeDegrees;
     public float TargetHorizontalGazeDegrees => _rig.TargetHorizontalGazeDegrees;
     public float TargetVerticalGazeDegrees => _rig.TargetVerticalGazeDegrees;
+    public SpeechMouthShape MouthShape => _rig.MouthShape;
+    public SpeechMouthPose MouthPose => _rig.MouthPose;
+    public bool IsSpeechShapeCycling => _rig.IsSpeechShapeCycling;
 
     public void Configure(Player player, PlayerAppearance appearance, UniformDefinition uniform)
     {
@@ -68,6 +71,12 @@ public partial class PlayerPawn : Node3D
     public void LookAtFootball(Node3D football) => _rig.LookAtGazeTarget(football);
     public void LookAtWorldPoint(Vector3 worldPoint) => _rig.LookAtWorldPoint(worldPoint);
     public void ClearGazeTarget() => _rig.ClearGazeTarget();
+    public void SetMouthShape(SpeechMouthShape shape, float blendSeconds = SpeechMouthController.DefaultBlendSeconds) =>
+        _rig.SetMouthShape(shape, blendSeconds);
+    public void SetMouthControls(float jawOpen, float width, float lipFullness, float upperLip, float lowerLip) =>
+        _rig.SetMouthControls(jawOpen, width, lipFullness, upperLip, lowerLip);
+    public void StartSpeechShapeCycle(float holdSeconds = SpeechMouthController.DefaultCycleHoldSeconds) =>
+        _rig.StartSpeechShapeCycle(holdSeconds);
 
     public void ApplyAppearance(PlayerAppearance appearance)
     {

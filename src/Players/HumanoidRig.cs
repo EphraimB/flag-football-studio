@@ -16,6 +16,8 @@ public partial class HumanoidRig : Node3D
     private FacialExpressionController _facialController = null!;
     private HumanoidEyeRig _eyeRig = null!;
     private HumanoidHairRig _hairRig = null!;
+    private HumanoidMouthRig _mouthRig = null!;
+    private SpeechMouthController _mouthController = null!;
     private FaceAppearance? _faceAppearance;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
@@ -40,6 +42,13 @@ public partial class HumanoidRig : Node3D
     public bool HasFiniteHairGeometry => _hairRig.HasFiniteGeometry();
     public Vector3 HairGlobalPosition => _hairRig.GlobalPosition;
     public bool HairAttachedToHead => _hairRig.GetParent() == _attachments[HumanoidSkeletonDefinition.Head];
+    public SpeechMouthShape MouthShape => _mouthController.Shape;
+    public SpeechMouthPose MouthPose => _mouthController.CurrentPose;
+    public bool IsSpeechShapeCycling => _mouthController.IsCycling;
+    public int CompletedSpeechCycles => _mouthController.CompletedCycleCount;
+    public float MouthOpening => _mouthRig.Opening;
+    public bool HasFiniteMouthGeometry => _mouthRig.HasFiniteGeometry();
+    public bool MouthAttachedToHead => _mouthRig.GetParent() == _attachments[HumanoidSkeletonDefinition.Head];
     public Mesh BodyMeshResource => _bodyMesh.Mesh;
     public ArrayMesh FaceMeshResource => (ArrayMesh)_faceMesh.Mesh;
     public string TopologySignature => HumanoidSkinnedMesh.TopologySignature;
@@ -105,6 +114,12 @@ public partial class HumanoidRig : Node3D
     public void LookAtGazeTarget(Node3D target) => _eyeRig.LookAtNode(target);
     public void LookAtWorldPoint(Vector3 worldPoint) => _eyeRig.LookAtWorldPoint(worldPoint);
     public void ClearGazeTarget() => _eyeRig.ClearGazeTarget();
+    public void SetMouthShape(SpeechMouthShape shape, float blendSeconds = SpeechMouthController.DefaultBlendSeconds) =>
+        _mouthController.SetShape(shape, blendSeconds);
+    public void SetMouthControls(float jawOpen, float width, float lipFullness, float upperLip, float lowerLip) =>
+        _mouthController.SetManualControls(jawOpen, width, lipFullness, upperLip, lowerLip);
+    public void StartSpeechShapeCycle(float holdSeconds = SpeechMouthController.DefaultCycleHoldSeconds) =>
+        _mouthController.StartCycle(holdSeconds);
 
     public Transform3D BoneGlobalPose(string boneName)
     {
@@ -182,10 +197,17 @@ public partial class HumanoidRig : Node3D
         _hairRig = new HumanoidHairRig { Name = "HairRig" };
         _attachments[HumanoidSkeletonDefinition.Head].AddChild(_hairRig);
 
+        _mouthRig = new HumanoidMouthRig { Name = "MouthRig" };
+        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_mouthRig);
+
         _facialController = new FacialExpressionController { Name = "FacialExpressionController" };
         AddChild(_facialController);
         _facialController.PoseChanged += OnFacialPoseChanged;
         _facialController.BlinkChanged += _eyeRig.SetBlinkAmount;
+
+        _mouthController = new SpeechMouthController { Name = "SpeechMouthController" };
+        AddChild(_mouthController);
+        _mouthController.PoseChanged += OnMouthPoseChanged;
     }
 
     private void ApplyProportions(PlayerAppearance appearance)
@@ -227,7 +249,7 @@ public partial class HumanoidRig : Node3D
     private void ApplyFace(FaceAppearance face, Material skin, Material hair)
     {
         _faceAppearance = face;
-        _faceMesh.Mesh = HumanoidFaceMesh.Create(face, _facialController.CurrentPose);
+        RefreshFacialGeometry();
         _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Skin, skin);
         _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Eyes, CreateMaterial(Colors.Transparent, true));
         _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Brows, hair);
@@ -238,9 +260,24 @@ public partial class HumanoidRig : Node3D
 
     private void OnFacialPoseChanged(FacialExpressionPose pose)
     {
-        if (_faceAppearance is not null)
-            _faceMesh.Mesh = HumanoidFaceMesh.Create(_faceAppearance, pose);
         _eyeRig.SetExpressionPose(pose);
+        RefreshFacialGeometry();
+    }
+
+    private void OnMouthPoseChanged(SpeechMouthPose _) => RefreshFacialGeometry();
+
+    private void RefreshFacialGeometry()
+    {
+        if (_faceAppearance is null)
+            return;
+        _faceMesh.Mesh = HumanoidFaceMesh.Create(
+            _faceAppearance,
+            _facialController.CurrentPose,
+            _mouthController.CurrentPose);
+        _mouthRig.Configure(
+            _faceAppearance,
+            _facialController.CurrentPose,
+            _mouthController.CurrentPose);
     }
 
     private void AddAccessories(PlayerAccessories accessories, Material secondary, FaceAppearance face)

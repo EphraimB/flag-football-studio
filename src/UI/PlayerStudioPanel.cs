@@ -64,6 +64,13 @@ public partial class PlayerStudioPanel : PanelContainer
     private SpinBox _gazeVertical = null!;
     private Button _applyGazeButton = null!;
     private Button _centerGazeButton = null!;
+    private OptionButton _mouthShape = null!;
+    private SpinBox _jawOpen = null!;
+    private SpinBox _speechLipWidth = null!;
+    private SpinBox _speechLipFullness = null!;
+    private SpinBox _upperLip = null!;
+    private SpinBox _lowerLip = null!;
+    private Button _cycleSpeechButton = null!;
 
     public event Action<Guid>? AppearanceChanged;
     public event Action<string>? StatusChanged;
@@ -71,6 +78,8 @@ public partial class PlayerStudioPanel : PanelContainer
     public event Action<Guid>? BlinkRequested;
     public event Action<Guid, bool>? AutomaticBlinkChanged;
     public event Action<Guid, GazePreviewTargetKind, Guid?, float, float>? GazePreviewRequested;
+    public event Action<Guid, SpeechMouthShape, float, float, float, float, float>? MouthPreviewRequested;
+    public event Action<Guid>? SpeechShapeCycleRequested;
 
     public void Configure(GameProject project, Game game)
     {
@@ -100,6 +109,9 @@ public partial class PlayerStudioPanel : PanelContainer
         _automaticBlink.Disabled = !enabled;
         _applyGazeButton.Disabled = !enabled;
         _centerGazeButton.Disabled = !enabled;
+        foreach (var control in new Control[] { _mouthShape, _jawOpen, _speechLipWidth, _speechLipFullness, _upperLip, _lowerLip })
+            control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        _cycleSpeechButton.Disabled = !enabled;
     }
 
     public void RefreshUniformFields()
@@ -216,6 +228,7 @@ public partial class PlayerStudioPanel : PanelContainer
 
         BuildHairEditor(tabs);
         BuildFaceEditor(tabs);
+        BuildMouthEditor(tabs);
     }
 
     private void RefreshPlayers()
@@ -583,6 +596,70 @@ public partial class PlayerStudioPanel : PanelContainer
         gazeButtons.AddChild(_centerGazeButton);
     }
 
+    private void BuildMouthEditor(TabContainer tabs)
+    {
+        var scroll = new ScrollContainer
+        {
+            Name = "Mouth",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
+        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 7);
+        scroll.AddChild(stack);
+        stack.AddChild(new Label
+        {
+            Text = "Transient speech-shape preview",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        });
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(grid);
+
+        _mouthShape = CreateMouthShapeOption();
+        _mouthShape.ItemSelected += _ => OnMouthPreviewChanged();
+        AddField(grid, "Mouth shape", _mouthShape);
+        _jawOpen = CreateMouthSpinBox(grid, "Jaw open", 0, 1, 0);
+        _speechLipWidth = CreateMouthSpinBox(grid, "Lip width", 0.75, 1.25, 1, "×");
+        _speechLipFullness = CreateMouthSpinBox(grid, "Lip fullness", 0.75, 1.25, 1, "×");
+        _upperLip = CreateMouthSpinBox(grid, "Upper lip", -1, 1, 0);
+        _lowerLip = CreateMouthSpinBox(grid, "Lower lip", -1, 1, 0);
+
+        _cycleSpeechButton = new Button { Text = "Cycle Speech Shapes" };
+        _cycleSpeechButton.Pressed += () => SpeechShapeCycleRequested?.Invoke(_selectedPlayerId);
+        stack.AddChild(_cycleSpeechButton);
+        stack.AddChild(new Label
+        {
+            Text = "Speech previews layer over the selected facial expression and are not saved.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        });
+    }
+
+    private SpinBox CreateMouthSpinBox(GridContainer grid, string label, double minimum, double maximum, double value, string suffix = "")
+    {
+        var editor = CreateSpinBox(minimum, maximum, 0.01, suffix);
+        editor.Value = value;
+        editor.ValueChanged += _ => OnMouthPreviewChanged();
+        AddField(grid, label, editor);
+        return editor;
+    }
+
+    private void OnMouthPreviewChanged()
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty)
+            return;
+        MouthPreviewRequested?.Invoke(
+            _selectedPlayerId,
+            (SpeechMouthShape)_mouthShape.GetItemId(_mouthShape.Selected),
+            (float)_jawOpen.Value,
+            (float)_speechLipWidth.Value,
+            (float)_speechLipFullness.Value,
+            (float)_upperLip.Value,
+            (float)_lowerLip.Value);
+    }
+
     private void AddFaceField(GridContainer grid, FaceControl faceControl, string label, bool offset = false)
     {
         var editor = offset
@@ -721,6 +798,23 @@ public partial class PlayerStudioPanel : PanelContainer
             HairStyle.Mohawk
         })
             option.AddItem(style == HairStyle.Mohawk ? "Mohawk (Legacy)" : SplitName(style.ToString()), (int)style);
+        return option;
+    }
+
+    private static OptionButton CreateMouthShapeOption()
+    {
+        var option = new OptionButton();
+        foreach (var shape in Enum.GetValues<SpeechMouthShape>())
+        {
+            var label = shape switch
+            {
+                SpeechMouthShape.Mbp => "M / B / P",
+                SpeechMouthShape.Fv => "F / V",
+                SpeechMouthShape.Wq => "W / Q",
+                _ => shape.ToString()
+            };
+            option.AddItem(label, (int)shape);
+        }
         return option;
     }
 

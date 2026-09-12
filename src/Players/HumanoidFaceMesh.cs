@@ -18,14 +18,18 @@ public static class HumanoidFaceMesh
 {
     private const string TopologyMeta = "face_topology_signature";
 
-    public static ArrayMesh Create(FaceAppearance face, FacialExpressionPose expression = default)
+    public static ArrayMesh Create(
+        FaceAppearance face,
+        FacialExpressionPose expression = default,
+        SpeechMouthPose? mouth = null)
     {
         ArgumentNullException.ThrowIfNull(face);
+        var speech = mouth ?? SpeechMouthPose.Rest;
         var surfaces = Enum.GetValues<HumanoidFaceSurface>()
             .ToDictionary(surface => surface, _ => new FaceSurfaceGeometry());
 
-        BuildHead(surfaces[HumanoidFaceSurface.Skin], face);
-        BuildFeatures(surfaces, face, expression);
+        BuildHead(surfaces[HumanoidFaceSurface.Skin], face, expression, speech);
+        BuildFeatures(surfaces, face, expression, speech);
 
         var mesh = new ArrayMesh();
         foreach (var surface in Enum.GetValues<HumanoidFaceSurface>())
@@ -50,7 +54,21 @@ public static class HumanoidFaceMesh
         return new Vector3(left ? -eyeX : eyeX, EyeY(face), -0.292f);
     }
 
-    private static void BuildHead(FaceSurfaceGeometry surface, FaceAppearance face)
+    public static float CombinedJawOpen(FacialExpressionPose expression, SpeechMouthPose speech) =>
+        Mathf.Clamp(speech.JawOpen + expression.MouthOpen * 0.45f, 0, 1);
+
+    public static Vector3 MouthCenter(FaceAppearance face, FacialExpressionPose expression, SpeechMouthPose speech)
+    {
+        var jawOpen = CombinedJawOpen(expression, speech);
+        var mouthY = -0.005f - (face.JawHeight - 1) * 0.035f - jawOpen * 0.018f;
+        return new Vector3(0, mouthY, -0.304f - face.ChinProjection * 0.02f);
+    }
+
+    private static void BuildHead(
+        FaceSurfaceGeometry surface,
+        FaceAppearance face,
+        FacialExpressionPose expression,
+        SpeechMouthPose speech)
     {
         const int latitudeSegments = 12;
         const int radialSegments = 16;
@@ -64,7 +82,7 @@ public static class HumanoidFaceMesh
                 var u = side / (float)radialSegments;
                 var theta = u * Mathf.Tau;
                 var unit = new Vector3(Mathf.Sin(phi) * Mathf.Cos(theta), Mathf.Cos(phi), Mathf.Sin(phi) * Mathf.Sin(theta));
-                surface.AddVertex(DeformHeadVertex(unit, face), unit, new Vector2(u, v));
+                surface.AddVertex(DeformHeadVertex(unit, face, expression, speech), unit, new Vector2(u, v));
             }
         }
 
@@ -92,7 +110,11 @@ public static class HumanoidFaceMesh
         surface.AddSphere(new Vector3(earX, earY, 0), earRadius, 6, 8);
     }
 
-    private static Vector3 DeformHeadVertex(Vector3 unit, FaceAppearance face)
+    private static Vector3 DeformHeadVertex(
+        Vector3 unit,
+        FaceAppearance face,
+        FacialExpressionPose expression,
+        SpeechMouthPose speech)
     {
         var lowerFace = Mathf.SmoothStep(0, 1, Mathf.Clamp((-unit.Y + 0.05f) / 0.9f, 0, 1));
         var chin = Mathf.SmoothStep(0, 1, Mathf.Clamp((-unit.Y - 0.5f) / 0.45f, 0, 1));
@@ -109,16 +131,22 @@ public static class HumanoidFaceMesh
             : face.HeadHeight * Mathf.Lerp(1, face.ForeheadHeight, forehead);
         var depth = 0.3f * (1 + (face.CheekFullness - 1) * cheek * front * 0.38f);
 
-        return new Vector3(
+        var vertex = new Vector3(
             unit.X * 0.32f * width,
             0.13f + unit.Y * 0.34f * verticalScale,
             unit.Z * depth - face.ChinProjection * 0.08f * chin * front);
+        var jawMask = Mathf.SmoothStep(0, 1, Mathf.Clamp((-unit.Y - 0.1f) / 0.72f, 0, 1));
+        var jawOpen = CombinedJawOpen(expression, speech);
+        vertex.Y -= jawOpen * 0.055f * jawMask;
+        vertex.Z += jawOpen * 0.018f * jawMask;
+        return vertex;
     }
 
     private static void BuildFeatures(
         Dictionary<HumanoidFaceSurface, FaceSurfaceGeometry> surfaces,
         FaceAppearance face,
-        FacialExpressionPose expression)
+        FacialExpressionPose expression,
+        SpeechMouthPose speech)
     {
         var eyeY = EyeY(face);
         var eyeX = EyeCenter(face, false).X;
@@ -131,18 +159,23 @@ public static class HumanoidFaceMesh
         surfaces[HumanoidFaceSurface.Brows].AddRotatedBox(new Vector3(-eyeX, browY, -0.305f), browSize, expression.BrowTilt * 0.22f);
         surfaces[HumanoidFaceSurface.Brows].AddRotatedBox(new Vector3(eyeX, browY, -0.305f), browSize, -expression.BrowTilt * 0.22f);
 
-        var mouthY = -0.005f - (face.JawHeight - 1) * 0.035f;
-        var mouthCenter = new Vector3(0, mouthY, -0.304f - face.ChinProjection * 0.02f);
+        var jawOpen = CombinedJawOpen(expression, speech);
+        var mouthCenter = MouthCenter(face, expression, speech);
+        var widthScale = speech.Width * Mathf.Lerp(1, 0.82f, speech.Roundness);
         var mouthRadius = new Vector3(
-            0.105f * face.MouthWidth,
-            0.025f * face.LipFullness + expression.MouthOpen * 0.035f,
+            0.105f * face.MouthWidth * widthScale,
+            0.022f * face.LipFullness * speech.LipFullness + jawOpen * 0.026f,
             0.018f);
         var firstMouthVertex = surfaces[HumanoidFaceSurface.Lips].Vertices.Count;
         surfaces[HumanoidFaceSurface.Lips].AddSphere(mouthCenter, mouthRadius, 4, 10);
         surfaces[HumanoidFaceSurface.Lips].TransformVertices(firstMouthVertex, vertex =>
         {
             var horizontal = Mathf.Clamp(Mathf.Abs(vertex.X - mouthCenter.X) / mouthRadius.X, 0, 1);
-            vertex.Y += expression.Smile * horizontal * 0.035f;
+            var upper = vertex.Y >= mouthCenter.Y ? 1f : 0f;
+            var lower = 1 - upper;
+            vertex.Y += (expression.Smile + speech.CornerPull * 0.55f) * horizontal * 0.035f;
+            vertex.Y += upper * speech.UpperLipRaise * 0.018f;
+            vertex.Y -= lower * (speech.LowerLipDrop * 0.018f + jawOpen * 0.022f);
             return vertex;
         });
     }
