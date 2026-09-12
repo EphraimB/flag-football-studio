@@ -13,12 +13,26 @@ public partial class HumanoidRig : Node3D
     private MeshInstance3D _bodyMesh = null!;
     private MeshInstance3D _faceMesh = null!;
     private HumanoidAnimator _animator = null!;
+    private FacialExpressionController _facialController = null!;
+    private HumanoidEyeRig _eyeRig = null!;
+    private FaceAppearance? _faceAppearance;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
 
     public Node3D EyeAnchor => _eyeAnchor;
     public Node3D CatchAnchor => _catchAnchor;
     public HumanoidAnimationState AnimationState => _animator.State;
+    public FacialExpressionState FacialExpression => _facialController.Expression;
+    public FacialExpressionPose FacialPose => _facialController.CurrentPose;
+    public float BlinkAmount => _facialController.BlinkAmount;
+    public int BlinkCount => _facialController.BlinkCount;
+    public float HorizontalGazeDegrees => _eyeRig.HorizontalGazeDegrees;
+    public float VerticalGazeDegrees => _eyeRig.VerticalGazeDegrees;
+    public float TargetHorizontalGazeDegrees => _eyeRig.TargetHorizontalGazeDegrees;
+    public float TargetVerticalGazeDegrees => _eyeRig.TargetVerticalGazeDegrees;
+    public float EyeSeparation => _eyeRig.EyeSeparation;
+    public float EyeSize => _eyeRig.EyeSize;
+    public float EyelidClosure => _eyeRig.EyelidClosure;
     public Mesh BodyMeshResource => _bodyMesh.Mesh;
     public ArrayMesh FaceMeshResource => (ArrayMesh)_faceMesh.Mesh;
     public string TopologySignature => HumanoidSkinnedMesh.TopologySignature;
@@ -28,6 +42,7 @@ public partial class HumanoidRig : Node3D
     {
         BuildSkeleton();
         BuildSkinnedBody();
+        BuildFacialSystem();
         _animator = new HumanoidAnimator { Name = "Animator" };
         AddChild(_animator);
         _animator.Configure(_skeleton);
@@ -66,13 +81,23 @@ public partial class HumanoidRig : Node3D
         AddDetail(HumanoidSkeletonDefinition.Hips, "LeftFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(-0.42f, -0.08f, 0), flag);
         AddDetail(HumanoidSkeletonDefinition.Hips, "RightFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(0.42f, -0.08f, 0), flag);
 
-        AddFace(appearance.Face, skin, hair);
+        ApplyFace(appearance.Face, skin, hair);
         AddHair(appearance.HairStyle, hair, appearance.Face);
         AddAccessories(appearance.Accessories, secondary, appearance.Face);
         AddUniformLabels(player, uniform);
     }
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _animator.SetState(state, restart);
+    public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
+        _facialController.SetExpression(expression, blendSeconds);
+    public void SetEyebrowControl(float raise, float tilt) => _facialController.SetEyebrowControl(raise, tilt);
+    public void TriggerBlink(float durationSeconds = FacialExpressionController.DefaultBlinkSeconds) => _facialController.TriggerBlink(durationSeconds);
+    public void SetAutomaticBlink(bool enabled, float intervalSeconds = FacialExpressionController.DefaultAutomaticBlinkInterval) =>
+        _facialController.SetAutomaticBlink(enabled, intervalSeconds);
+    public void SetManualGaze(float horizontal, float vertical) => _eyeRig.SetManualGaze(horizontal, vertical);
+    public void LookAtGazeTarget(Node3D target) => _eyeRig.LookAtNode(target);
+    public void LookAtWorldPoint(Vector3 worldPoint) => _eyeRig.LookAtWorldPoint(worldPoint);
+    public void ClearGazeTarget() => _eyeRig.ClearGazeTarget();
 
     public Transform3D BoneGlobalPose(string boneName)
     {
@@ -139,6 +164,20 @@ public partial class HumanoidRig : Node3D
         _bodyMesh.Skeleton = _bodyMesh.GetPathTo(_skeleton);
     }
 
+    private void BuildFacialSystem()
+    {
+        _faceMesh = new MeshInstance3D { Name = "ProceduralFace" };
+        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_faceMesh);
+
+        _eyeRig = new HumanoidEyeRig { Name = "EyeRig" };
+        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_eyeRig);
+
+        _facialController = new FacialExpressionController { Name = "FacialExpressionController" };
+        AddChild(_facialController);
+        _facialController.PoseChanged += OnFacialPoseChanged;
+        _facialController.BlinkChanged += _eyeRig.SetBlinkAmount;
+    }
+
     private void ApplyProportions(PlayerAppearance appearance)
     {
         Scale = new Vector3(1, appearance.HeightMeters / 1.8f, 1);
@@ -175,19 +214,23 @@ public partial class HumanoidRig : Node3D
     private void SetBoneScale(string boneName, Vector3 scale) =>
         _skeleton.SetBonePoseScale(_skeleton.FindBone(boneName), scale);
 
-    private void AddFace(FaceAppearance face, Material skin, Material hair)
+    private void ApplyFace(FaceAppearance face, Material skin, Material hair)
     {
-        _faceMesh = new MeshInstance3D
-        {
-            Name = "ProceduralFace",
-            Mesh = HumanoidFaceMesh.Create(face)
-        };
+        _faceAppearance = face;
+        _faceMesh.Mesh = HumanoidFaceMesh.Create(face, _facialController.CurrentPose);
         _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Skin, skin);
-        _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Eyes, CreateMaterial(new Color("242b35")));
+        _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Eyes, CreateMaterial(Colors.Transparent, true));
         _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Brows, hair);
         _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Lips, CreateMaterial(new Color("914f58")));
-        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_faceMesh);
-        _generatedDetails.Add(_faceMesh);
+        _eyeRig.Configure(face, face.EyeColor, skin);
+        _eyeRig.SetExpressionPose(_facialController.CurrentPose);
+    }
+
+    private void OnFacialPoseChanged(FacialExpressionPose pose)
+    {
+        if (_faceAppearance is not null)
+            _faceMesh.Mesh = HumanoidFaceMesh.Create(_faceAppearance, pose);
+        _eyeRig.SetExpressionPose(pose);
     }
 
     private void AddHair(HairStyle style, Material material, FaceAppearance face)

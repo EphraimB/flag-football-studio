@@ -14,6 +14,14 @@ public partial class PlayerPawn : Node3D
     public Node3D EyeAnchor => _rig.EyeAnchor;
     public Node3D CatchAnchor => _rig.CatchAnchor;
     public HumanoidAnimationState AnimationState => _rig.AnimationState;
+    public FacialExpressionState FacialExpression => _rig.FacialExpression;
+    public FacialExpressionPose FacialPose => _rig.FacialPose;
+    public float BlinkAmount => _rig.BlinkAmount;
+    public int BlinkCount => _rig.BlinkCount;
+    public float HorizontalGazeDegrees => _rig.HorizontalGazeDegrees;
+    public float VerticalGazeDegrees => _rig.VerticalGazeDegrees;
+    public float TargetHorizontalGazeDegrees => _rig.TargetHorizontalGazeDegrees;
+    public float TargetVerticalGazeDegrees => _rig.TargetVerticalGazeDegrees;
 
     public void Configure(Player player, PlayerAppearance appearance, UniformDefinition uniform)
     {
@@ -49,6 +57,17 @@ public partial class PlayerPawn : Node3D
     }
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _rig.SetAnimationState(state, restart);
+    public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
+        _rig.SetFacialExpression(expression, blendSeconds);
+    public void SetEyebrowControl(float raise, float tilt) => _rig.SetEyebrowControl(raise, tilt);
+    public void TriggerBlink(float durationSeconds = FacialExpressionController.DefaultBlinkSeconds) => _rig.TriggerBlink(durationSeconds);
+    public void SetAutomaticBlink(bool enabled, float intervalSeconds = FacialExpressionController.DefaultAutomaticBlinkInterval) =>
+        _rig.SetAutomaticBlink(enabled, intervalSeconds);
+    public void SetManualGaze(float horizontal, float vertical) => _rig.SetManualGaze(horizontal, vertical);
+    public void LookAtPlayer(PlayerPawn player) => _rig.LookAtGazeTarget(player);
+    public void LookAtFootball(Node3D football) => _rig.LookAtGazeTarget(football);
+    public void LookAtWorldPoint(Vector3 worldPoint) => _rig.LookAtWorldPoint(worldPoint);
+    public void ClearGazeTarget() => _rig.ClearGazeTarget();
 
     public void ApplyAppearance(PlayerAppearance appearance)
     {

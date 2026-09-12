@@ -8,8 +8,9 @@ field, two five-player teams, a top-down play editor, persistent play and camera
 libraries, a game-state scoreboard, configurable camera previews, editable
 humanoid player appearances, reusable team uniform libraries, and deterministic
 tween-based playback with skeletal animation states. Player appearances now
-include deterministic low-poly face customization. It is an architectural
-prototype rather than a gameplay simulation.
+include deterministic low-poly face customization, blended expression previews,
+blinking, and gaze control. It is an architectural prototype rather than a
+gameplay simulation.
 
 ## Repository layout
 
@@ -33,6 +34,13 @@ prototype rather than a gameplay simulation.
   builds a per-player face from one fixed indexed topology and attaches it to
   the shared head bone. Hair, uniform trim, flags, labels, and accessories
   remain lightweight bone-attached details.
+- `HumanoidEyeRig` provides reusable eyeball, iris, pupil, upper-lid, and
+  lower-lid geometry. It applies independently clamped horizontal and vertical
+  gaze without rotating or moving the Player POV anchor.
+- `FacialExpressionController` owns presentation-only expression, eyebrow,
+  blink, and blend state. Its deterministic poses deform the existing brow and
+  mouth topology while driving eyelid openness; no expression or gaze state is
+  added to the football domain or saved game project.
 - `HumanoidAnimator` samples idle, jog, sprint, turn, throw, catch, and
   flag-pull poses, blending between states before applying them to the shared
   skeleton. It is presentation-only and does not add animation state to player
@@ -62,7 +70,8 @@ prototype rather than a gameplay simulation.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for height,
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
   optional accessories. Its Godot-independent `FaceAppearance` value stores
-  clamped face proportions; it contains no meshes, nodes, or engine vectors.
+  clamped face proportions and eye color; it contains no meshes, nodes, or
+  engine vectors.
   Jersey numbers are authoritative on the roster `Player`; team-wide styling
   is authoritative on `UniformDefinition`. `GameProject` owns and persists the
   appearance collection.
@@ -151,7 +160,15 @@ the generated presentation.
 - Use the dedicated **Face** tab to edit head width/height, jaw width/height,
   chin width/projection, cheekbone width/fullness, forehead height, eye
   spacing/size/vertical position, eyebrow height, nose width/length/projection,
-  mouth width, lip fullness, and ear size/position.
+  mouth width, lip fullness, ear size/position, and eye color.
+- Choose Neutral, Smile, Focused, Concerned, Surprised, or Frustrated under
+  **Expression preview**. Transitions blend smoothly and do not interrupt body
+  animation.
+- **Blink Test** triggers one blink. **Auto Blink** enables a deterministic
+  blink every 3.2 seconds for the selected player.
+- Under **Gaze test**, choose manual horizontal/vertical gaze, the football, or
+  another roster player, then choose **Apply Gaze**. **Center** restores neutral
+  manual gaze. Presentation APIs also support arbitrary world-space points.
 - Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
 - Body and face changes rebuild the selected player's presentation immediately
   in the 3D preview while preserving its skeleton and stable camera anchors.
@@ -210,17 +227,34 @@ shown.
 
 The face validator checks both ends of every range, conflicting combined
 extremes, fixed vertex/index topology, non-empty finite geometry, all 20 JSON
-fields, reuse of the skinned body resource, animation compatibility, and stable
-eye/POV and hand anchors.
+fields plus eye color, reuse of the skinned body resource, animation
+compatibility, and stable eye/POV and hand anchors.
+
+### Expression and eye validation
+
+Run the focused presentation validation with:
+
+```powershell
+godot --headless --path . -- --validate-expressions
+```
+
+It covers minimum-spacing/maximum-size eye combinations, both gaze axes at
+their full limits, moving node targets and world-space targets, repeated manual
+and deterministic automatic blinks, interpolation through every expression
+while jogging, topology invariance, and Player POV stability.
 
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
 not yet provide a production-smooth body or cloth deformation. The face is a
 rigid head-bone-attached, fixed-topology low-poly mesh with separately generated
-eyes, brows, lips, nose, and ears. It has no facial skinning, expressions,
-facial edge-loop rig, eyelids, realistic eyeballs, teeth, tongue, lip sync, or
-photorealistic skin shader. Extreme settings are safe and deterministic but can
-still look stylized, angular, or show seams where feature surfaces meet. AI
-face generation, photo reconstruction, cloth simulation, dialogue, crowds,
-360 output, and production rendering remain future work.
+eyes, brows, lips, nose, and ears. Expressions move only the procedural brows,
+mouth, and eyelids; they do not provide a facial bone rig or full cheek/jaw skin
+deformation. Eyeballs, irises, pupils, and lids are simple reusable primitives,
+with no eyelid curvature fitting, tear line, eye moisture, corneal refraction,
+or convergence model. There are no wrinkles, teeth, tongue, lip sync, speech
+animation, or photorealistic skin shaders. Extreme settings are safe and
+deterministic but can still look stylized, angular, or show seams and minor
+overlap where feature surfaces meet. AI face generation, photo reconstruction,
+cloth simulation, dialogue, crowds, 360 output, and production rendering remain
+future work.

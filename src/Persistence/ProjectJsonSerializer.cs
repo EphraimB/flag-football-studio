@@ -257,6 +257,7 @@ public sealed class ProjectJsonSerializer
         public float LipFullness { get; set; }
         public float EarSize { get; set; }
         public float EarPosition { get; set; }
+        public AppearanceColor? EyeColor { get; set; }
 
         public static FaceAppearanceData FromDomain(FaceAppearance face) => new()
         {
@@ -279,30 +280,36 @@ public sealed class ProjectJsonSerializer
             MouthWidth = face.MouthWidth,
             LipFullness = face.LipFullness,
             EarSize = face.EarSize,
-            EarPosition = face.EarPosition
+            EarPosition = face.EarPosition,
+            EyeColor = face.EyeColor
         };
 
-        public void ApplyTo(FaceAppearance face) => face.SetParameters(
-            HeadWidth,
-            HeadHeight,
-            JawWidth,
-            JawHeight,
-            ChinWidth,
-            ChinProjection,
-            CheekboneWidth,
-            CheekFullness,
-            ForeheadHeight,
-            EyeSpacing,
-            EyeSize,
-            EyeVerticalPosition,
-            EyebrowHeight,
-            NoseWidth,
-            NoseLength,
-            NoseProjection,
-            MouthWidth,
-            LipFullness,
-            EarSize,
-            EarPosition);
+        public void ApplyTo(FaceAppearance face)
+        {
+            face.SetParameters(
+                HeadWidth,
+                HeadHeight,
+                JawWidth,
+                JawHeight,
+                ChinWidth,
+                ChinProjection,
+                CheekboneWidth,
+                CheekFullness,
+                ForeheadHeight,
+                EyeSpacing,
+                EyeSize,
+                EyeVerticalPosition,
+                EyebrowHeight,
+                NoseWidth,
+                NoseLength,
+                NoseProjection,
+                MouthWidth,
+                LipFullness,
+                EarSize,
+                EarPosition);
+            if (EyeColor.HasValue)
+                face.SetEyeColor(EyeColor.Value);
+        }
     }
 
     private sealed class CameraData

@@ -18,14 +18,14 @@ public static class HumanoidFaceMesh
 {
     private const string TopologyMeta = "face_topology_signature";
 
-    public static ArrayMesh Create(FaceAppearance face)
+    public static ArrayMesh Create(FaceAppearance face, FacialExpressionPose expression = default)
     {
         ArgumentNullException.ThrowIfNull(face);
         var surfaces = Enum.GetValues<HumanoidFaceSurface>()
             .ToDictionary(surface => surface, _ => new FaceSurfaceGeometry());
 
         BuildHead(surfaces[HumanoidFaceSurface.Skin], face);
-        BuildFeatures(surfaces, face);
+        BuildFeatures(surfaces, face, expression);
 
         var mesh = new ArrayMesh();
         foreach (var surface in Enum.GetValues<HumanoidFaceSurface>())
@@ -43,6 +43,12 @@ public static class HumanoidFaceMesh
     }
 
     public static string TopologySignature(ArrayMesh mesh) => mesh.GetMeta(TopologyMeta).AsString();
+
+    public static Vector3 EyeCenter(FaceAppearance face, bool left)
+    {
+        var eyeX = 0.12f * face.EyeSpacing * face.HeadWidth;
+        return new Vector3(left ? -eyeX : eyeX, EyeY(face), -0.292f);
+    }
 
     private static void BuildHead(FaceSurfaceGeometry surface, FaceAppearance face)
     {
@@ -109,22 +115,36 @@ public static class HumanoidFaceMesh
             unit.Z * depth - face.ChinProjection * 0.08f * chin * front);
     }
 
-    private static void BuildFeatures(Dictionary<HumanoidFaceSurface, FaceSurfaceGeometry> surfaces, FaceAppearance face)
+    private static void BuildFeatures(
+        Dictionary<HumanoidFaceSurface, FaceSurfaceGeometry> surfaces,
+        FaceAppearance face,
+        FacialExpressionPose expression)
     {
         var eyeY = EyeY(face);
-        var eyeX = 0.12f * face.EyeSpacing * face.HeadWidth;
+        var eyeX = EyeCenter(face, false).X;
         var eyeRadius = new Vector3(0.055f, 0.038f, 0.018f) * face.EyeSize;
         surfaces[HumanoidFaceSurface.Eyes].AddSphere(new Vector3(-eyeX, eyeY, -0.292f), eyeRadius, 5, 8);
         surfaces[HumanoidFaceSurface.Eyes].AddSphere(new Vector3(eyeX, eyeY, -0.292f), eyeRadius, 5, 8);
 
-        var browY = eyeY + 0.055f + 0.025f * face.EyebrowHeight;
+        var browY = eyeY + 0.055f + 0.025f * face.EyebrowHeight + expression.BrowRaise * 0.045f;
         var browSize = new Vector3(0.115f * face.EyeSize, 0.018f, 0.025f);
-        surfaces[HumanoidFaceSurface.Brows].AddBox(new Vector3(-eyeX, browY, -0.305f), browSize);
-        surfaces[HumanoidFaceSurface.Brows].AddBox(new Vector3(eyeX, browY, -0.305f), browSize);
+        surfaces[HumanoidFaceSurface.Brows].AddRotatedBox(new Vector3(-eyeX, browY, -0.305f), browSize, expression.BrowTilt * 0.22f);
+        surfaces[HumanoidFaceSurface.Brows].AddRotatedBox(new Vector3(eyeX, browY, -0.305f), browSize, -expression.BrowTilt * 0.22f);
 
         var mouthY = -0.005f - (face.JawHeight - 1) * 0.035f;
-        var mouthRadius = new Vector3(0.105f * face.MouthWidth, 0.025f * face.LipFullness, 0.018f);
-        surfaces[HumanoidFaceSurface.Lips].AddSphere(new Vector3(0, mouthY, -0.304f - face.ChinProjection * 0.02f), mouthRadius, 4, 10);
+        var mouthCenter = new Vector3(0, mouthY, -0.304f - face.ChinProjection * 0.02f);
+        var mouthRadius = new Vector3(
+            0.105f * face.MouthWidth,
+            0.025f * face.LipFullness + expression.MouthOpen * 0.035f,
+            0.018f);
+        var firstMouthVertex = surfaces[HumanoidFaceSurface.Lips].Vertices.Count;
+        surfaces[HumanoidFaceSurface.Lips].AddSphere(mouthCenter, mouthRadius, 4, 10);
+        surfaces[HumanoidFaceSurface.Lips].TransformVertices(firstMouthVertex, vertex =>
+        {
+            var horizontal = Mathf.Clamp(Mathf.Abs(vertex.X - mouthCenter.X) / mouthRadius.X, 0, 1);
+            vertex.Y += expression.Smile * horizontal * 0.035f;
+            return vertex;
+        });
     }
 
     private static float EyeY(FaceAppearance face) => 0.18f + face.EyeVerticalPosition * 0.22f;
@@ -183,6 +203,28 @@ public static class HumanoidFaceMesh
             AddFace(center, new Vector3(half.X, -half.Y, -half.Z), new Vector3(half.X, -half.Y, half.Z), new Vector3(half.X, half.Y, half.Z), new Vector3(half.X, half.Y, -half.Z), Vector3.Right);
             AddFace(center, new Vector3(-half.X, half.Y, -half.Z), new Vector3(half.X, half.Y, -half.Z), new Vector3(half.X, half.Y, half.Z), new Vector3(-half.X, half.Y, half.Z), Vector3.Up);
             AddFace(center, new Vector3(-half.X, -half.Y, half.Z), new Vector3(half.X, -half.Y, half.Z), new Vector3(half.X, -half.Y, -half.Z), new Vector3(-half.X, -half.Y, -half.Z), Vector3.Down);
+        }
+
+        public void AddRotatedBox(Vector3 center, Vector3 size, float rotation)
+        {
+            var firstVertex = Vertices.Count;
+            AddBox(center, size);
+            var cosine = Mathf.Cos(rotation);
+            var sine = Mathf.Sin(rotation);
+            TransformVertices(firstVertex, vertex =>
+            {
+                var offset = vertex - center;
+                return center + new Vector3(
+                    offset.X * cosine - offset.Y * sine,
+                    offset.X * sine + offset.Y * cosine,
+                    offset.Z);
+            });
+        }
+
+        public void TransformVertices(int firstVertex, Func<Vector3, Vector3> transform)
+        {
+            for (var index = firstVertex; index < Vertices.Count; index++)
+                Vertices[index] = transform(Vertices[index]);
         }
 
         public void AddVertex(Vector3 vertex, Vector3 normal, Vector2 uv)

@@ -6,6 +6,13 @@ using Godot;
 
 namespace FlagFootballStudio.Presentation;
 
+public enum GazePreviewTargetKind
+{
+    Manual,
+    Football,
+    Player
+}
+
 public partial class PlayerStudioPanel : PanelContainer
 {
     private enum FaceControl
@@ -17,6 +24,7 @@ public partial class PlayerStudioPanel : PanelContainer
     }
 
     private readonly List<Guid> _playerIds = [];
+    private readonly List<(GazePreviewTargetKind Kind, Guid? PlayerId)> _gazeTargets = [];
     private readonly Dictionary<PlayerAccessories, CheckButton> _accessoryChecks = [];
     private readonly Dictionary<FaceControl, SpinBox> _faceControls = [];
     private GameProject _project = null!;
@@ -39,9 +47,22 @@ public partial class PlayerStudioPanel : PanelContainer
     private ColorPickerButton _primaryColor = null!;
     private ColorPickerButton _secondaryColor = null!;
     private ColorPickerButton _flagColor = null!;
+    private ColorPickerButton _eyeColor = null!;
+    private OptionButton _expressionOption = null!;
+    private Button _blinkButton = null!;
+    private CheckButton _automaticBlink = null!;
+    private OptionButton _gazeTarget = null!;
+    private SpinBox _gazeHorizontal = null!;
+    private SpinBox _gazeVertical = null!;
+    private Button _applyGazeButton = null!;
+    private Button _centerGazeButton = null!;
 
     public event Action<Guid>? AppearanceChanged;
     public event Action<string>? StatusChanged;
+    public event Action<Guid, FacialExpressionState>? ExpressionPreviewRequested;
+    public event Action<Guid>? BlinkRequested;
+    public event Action<Guid, bool>? AutomaticBlinkChanged;
+    public event Action<Guid, GazePreviewTargetKind, Guid?, float, float>? GazePreviewRequested;
 
     public void Configure(GameProject project, Game game)
     {
@@ -65,6 +86,12 @@ public partial class PlayerStudioPanel : PanelContainer
             check.Disabled = !enabled;
         foreach (var control in _faceControls.Values)
             control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        foreach (var control in new Control[] { _eyeColor, _expressionOption, _gazeTarget, _gazeHorizontal, _gazeVertical })
+            control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        _blinkButton.Disabled = !enabled;
+        _automaticBlink.Disabled = !enabled;
+        _applyGazeButton.Disabled = !enabled;
+        _centerGazeButton.Disabled = !enabled;
     }
 
     public void RefreshUniformFields()
@@ -204,6 +231,7 @@ public partial class PlayerStudioPanel : PanelContainer
         _selectedPlayerId = _playerIds.Count > 0 ? _playerIds[0] : Guid.Empty;
         if (_playerIds.Count > 0)
             _playerOption.Select(0);
+        RefreshGazeTargets();
         RefreshEditor();
         _refreshing = false;
     }
@@ -241,6 +269,7 @@ public partial class PlayerStudioPanel : PanelContainer
             return;
         _selectedPlayerId = _playerIds[(int)index];
         _refreshing = true;
+        RefreshGazeTargets();
         RefreshEditor();
         _refreshing = false;
     }
@@ -395,10 +424,13 @@ public partial class PlayerStudioPanel : PanelContainer
             SizeFlagsVertical = Control.SizeFlags.ExpandFill
         };
         tabs.AddChild(scroll);
+        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 6);
+        scroll.AddChild(stack);
         var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         grid.AddThemeConstantOverride("h_separation", 10);
         grid.AddThemeConstantOverride("v_separation", 4);
-        scroll.AddChild(grid);
+        stack.AddChild(grid);
 
         AddFaceField(grid, FaceControl.HeadWidth, "Head width");
         AddFaceField(grid, FaceControl.HeadHeight, "Head height");
@@ -420,6 +452,47 @@ public partial class PlayerStudioPanel : PanelContainer
         AddFaceField(grid, FaceControl.LipFullness, "Lip fullness");
         AddFaceField(grid, FaceControl.EarSize, "Ear size");
         AddFaceField(grid, FaceControl.EarPosition, "Ear position", true);
+
+        _eyeColor = CreateColorButton();
+        _eyeColor.ColorChanged += color => UpdateAppearance(appearance => appearance.Face.SetEyeColor(ToDomain(color)));
+        AddField(grid, "Eye color", _eyeColor);
+
+        stack.AddChild(new HSeparator());
+        stack.AddChild(new Label { Text = "Expression preview" });
+        _expressionOption = CreateEnumOption<FacialExpressionState>();
+        _expressionOption.ItemSelected += OnExpressionSelected;
+        stack.AddChild(_expressionOption);
+        var blinkRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(blinkRow);
+        _blinkButton = new Button { Text = "Blink Test" };
+        _blinkButton.Pressed += () => BlinkRequested?.Invoke(_selectedPlayerId);
+        blinkRow.AddChild(_blinkButton);
+        _automaticBlink = new CheckButton { Text = "Auto Blink" };
+        _automaticBlink.Toggled += enabled =>
+        {
+            if (!_refreshing)
+                AutomaticBlinkChanged?.Invoke(_selectedPlayerId, enabled);
+        };
+        blinkRow.AddChild(_automaticBlink);
+
+        stack.AddChild(new HSeparator());
+        stack.AddChild(new Label { Text = "Gaze test" });
+        _gazeTarget = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddChild(_gazeTarget);
+        var gazeGrid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddChild(gazeGrid);
+        _gazeHorizontal = CreateSpinBox(-1, 1, 0.05);
+        _gazeVertical = CreateSpinBox(-1, 1, 0.05);
+        AddField(gazeGrid, "Horizontal", _gazeHorizontal);
+        AddField(gazeGrid, "Vertical", _gazeVertical);
+        var gazeButtons = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(gazeButtons);
+        _applyGazeButton = new Button { Text = "Apply Gaze" };
+        _applyGazeButton.Pressed += OnApplyGaze;
+        gazeButtons.AddChild(_applyGazeButton);
+        _centerGazeButton = new Button { Text = "Center" };
+        _centerGazeButton.Pressed += OnCenterGaze;
+        gazeButtons.AddChild(_centerGazeButton);
     }
 
     private void AddFaceField(GridContainer grid, FaceControl faceControl, string label, bool offset = false)
@@ -454,6 +527,54 @@ public partial class PlayerStudioPanel : PanelContainer
         SetFaceValue(FaceControl.LipFullness, face.LipFullness);
         SetFaceValue(FaceControl.EarSize, face.EarSize);
         SetFaceValue(FaceControl.EarPosition, face.EarPosition);
+        _eyeColor.Color = ToGodot(face.EyeColor);
+    }
+
+    private void RefreshGazeTargets()
+    {
+        _gazeTargets.Clear();
+        _gazeTarget.Clear();
+        AddGazeTarget("Manual H/V", GazePreviewTargetKind.Manual, null);
+        AddGazeTarget("Football", GazePreviewTargetKind.Football, null);
+        foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster).Where(player => player.Id != _selectedPlayerId))
+            AddGazeTarget($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}", GazePreviewTargetKind.Player, player.Id);
+        _gazeTarget.Select(0);
+    }
+
+    private void AddGazeTarget(string label, GazePreviewTargetKind kind, Guid? playerId)
+    {
+        _gazeTarget.AddItem(label);
+        _gazeTargets.Add((kind, playerId));
+    }
+
+    private void OnExpressionSelected(long index)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty)
+            return;
+        ExpressionPreviewRequested?.Invoke(
+            _selectedPlayerId,
+            (FacialExpressionState)_expressionOption.GetItemId((int)index));
+    }
+
+    private void OnApplyGaze()
+    {
+        if (_selectedPlayerId == Guid.Empty || _gazeTarget.Selected < 0 || _gazeTarget.Selected >= _gazeTargets.Count)
+            return;
+        var target = _gazeTargets[_gazeTarget.Selected];
+        GazePreviewRequested?.Invoke(
+            _selectedPlayerId,
+            target.Kind,
+            target.PlayerId,
+            (float)_gazeHorizontal.Value,
+            (float)_gazeVertical.Value);
+    }
+
+    private void OnCenterGaze()
+    {
+        _gazeTarget.Select(0);
+        _gazeHorizontal.Value = 0;
+        _gazeVertical.Value = 0;
+        GazePreviewRequested?.Invoke(_selectedPlayerId, GazePreviewTargetKind.Manual, null, 0, 0);
     }
 
     private float FaceValue(FaceControl control) => (float)_faceControls[control].Value;

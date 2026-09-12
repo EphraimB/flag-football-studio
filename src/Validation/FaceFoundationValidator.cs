@@ -94,6 +94,7 @@ public partial class FaceFoundationValidator : Node
         var project = GameProject.CreatePrototype(game);
         var player = game.Gold.Roster[0];
         var face = project.AppearanceFor(player.Id).Face;
+        face.SetEyeColor(new AppearanceColor(37, 116, 164));
         face.SetParameters(
             0.82f, 1.18f, 0.87f, 1.13f, 0.83f, 0.14f, 0.9f, 1.17f, 1.12f, 0.91f,
             0.94f, -0.11f, 1.09f, 0.88f, 1.16f, 0.12f, 0.93f, 1.19f, 1.11f, -0.13f);
@@ -196,6 +197,7 @@ public partial class FaceFoundationValidator : Node
         Require(expected.NoseWidth == actual.NoseWidth && expected.NoseLength == actual.NoseLength && expected.NoseProjection == actual.NoseProjection, "Nose parameters did not survive JSON round trip.");
         Require(expected.MouthWidth == actual.MouthWidth && expected.LipFullness == actual.LipFullness, "Mouth parameters did not survive JSON round trip.");
         Require(expected.EarSize == actual.EarSize && expected.EarPosition == actual.EarPosition, "Ear parameters did not survive JSON round trip.");
+        Require(expected.EyeColor == actual.EyeColor, "Eye color did not survive JSON round trip.");
     }
 
     private static void ValidateAabb(Aabb bounds, string context)

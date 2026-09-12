@@ -78,13 +78,36 @@ public partial class Main : Node3D
         _cameraDirector.DeleteCutRequested += OnDeleteCameraCutRequested;
         _playerStudio.AppearanceChanged += OnPlayerAppearanceChanged;
         _playerStudio.StatusChanged += message => _gameDirector.SetStatus(message);
+        _playerStudio.ExpressionPreviewRequested += OnExpressionPreviewRequested;
+        _playerStudio.BlinkRequested += OnBlinkRequested;
+        _playerStudio.AutomaticBlinkChanged += OnAutomaticBlinkChanged;
+        _playerStudio.GazePreviewRequested += OnGazePreviewRequested;
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-faces"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-expressions"))
+            CallDeferred(nameof(RunExpressionEyeValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-faces"))
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunExpressionEyeValidation()
+    {
+        var validator = new ExpressionEyeValidator { Name = "ExpressionEyeValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Expression and eye validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunFaceValidation()
@@ -574,6 +597,47 @@ public partial class Main : Node3D
         _gameDirector.SetStatus("Player appearance updated");
     }
 
+    private void OnExpressionPreviewRequested(Guid playerId, FacialExpressionState expression)
+    {
+        PlayerPawnFor(playerId).SetFacialExpression(expression);
+        _gameDirector.SetStatus($"Expression: {expression}");
+    }
+
+    private void OnBlinkRequested(Guid playerId)
+    {
+        PlayerPawnFor(playerId).TriggerBlink();
+        _gameDirector.SetStatus("Blink triggered");
+    }
+
+    private void OnAutomaticBlinkChanged(Guid playerId, bool enabled)
+    {
+        PlayerPawnFor(playerId).SetAutomaticBlink(enabled);
+        _gameDirector.SetStatus(enabled ? "Automatic blink enabled" : "Automatic blink disabled");
+    }
+
+    private void OnGazePreviewRequested(
+        Guid playerId,
+        GazePreviewTargetKind targetKind,
+        Guid? targetPlayerId,
+        float horizontal,
+        float vertical)
+    {
+        var pawn = PlayerPawnFor(playerId);
+        switch (targetKind)
+        {
+            case GazePreviewTargetKind.Football:
+                pawn.LookAtFootball(_football);
+                break;
+            case GazePreviewTargetKind.Player when targetPlayerId.HasValue:
+                pawn.LookAtPlayer(PlayerPawnFor(targetPlayerId.Value));
+                break;
+            default:
+                pawn.SetManualGaze(horizontal, vertical);
+                break;
+        }
+        _gameDirector.SetStatus("Gaze preview updated");
+    }
+
     private void OnUniformChanged(Guid teamId)
     {
         RefreshTeamPresentation(teamId);
@@ -591,6 +655,11 @@ public partial class Main : Node3D
                 pawn.ApplyPresentation(_project.AppearanceFor(player.Id), uniform);
         }
     }
+
+    private PlayerPawn PlayerPawnFor(Guid playerId) =>
+        _pawns.TryGetValue(playerId, out var node) && node is PlayerPawn pawn
+            ? pawn
+            : throw new KeyNotFoundException("The requested player pawn is not in the preview.");
 
     private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);
 }

@@ -9,9 +9,13 @@ public sealed class FaceAppearance
     public const float MinimumOffset = -0.2f;
     public const float MaximumOffset = 0.2f;
 
-    public FaceAppearance() => SetParameters(
-        1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
-        1, 0, 1, 1, 1, 0, 1, 1, 1, 0);
+    public FaceAppearance()
+    {
+        SetParameters(
+            1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
+            1, 0, 1, 1, 1, 0, 1, 1, 1, 0);
+        EyeColor = new AppearanceColor(78, 111, 126);
+    }
 
     public float HeadWidth { get; private set; }
     public float HeadHeight { get; private set; }
@@ -33,6 +37,9 @@ public sealed class FaceAppearance
     public float LipFullness { get; private set; }
     public float EarSize { get; private set; }
     public float EarPosition { get; private set; }
+    public AppearanceColor EyeColor { get; private set; }
+
+    public void SetEyeColor(AppearanceColor color) => EyeColor = color;
 
     public void SetParameters(
         float headWidth,
