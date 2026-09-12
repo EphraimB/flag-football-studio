@@ -14,6 +14,7 @@ public partial class CameraDirectorPanel : PanelContainer
     private readonly List<Button> _buttons = [];
     private readonly SpinBox[] _position = new SpinBox[3];
     private readonly SpinBox[] _rotation = new SpinBox[3];
+    private readonly SpinBox[] _povWorldTarget = new SpinBox[3];
     private GameProject _project = null!;
     private Game _game = null!;
     private PlayDefinition _play = null!;
@@ -24,6 +25,17 @@ public partial class CameraDirectorPanel : PanelContainer
     private LineEdit _nameEdit = null!;
     private OptionButton _typeOption = null!;
     private OptionButton _playerOption = null!;
+    private OptionButton _povModeOption = null!;
+    private OptionButton _povTargetKindOption = null!;
+    private OptionButton _povTargetPlayerOption = null!;
+    private SpinBox _mouseSensitivity = null!;
+    private SpinBox _controllerSensitivity = null!;
+    private SpinBox _stabilization = null!;
+    private SpinBox _headBob = null!;
+    private SpinBox _pitchOffset = null!;
+    private SpinBox _forwardOffset = null!;
+    private SpinBox _nearClip = null!;
+    private Button _recenterButton = null!;
     private SpinBox _fov = null!;
     private SpinBox _cutTime = null!;
 
@@ -35,6 +47,8 @@ public partial class CameraDirectorPanel : PanelContainer
     public event Action<Guid, CameraType>? TypeChanged;
     public event Action<Guid, CameraVector, CameraVector, float>? FreeCameraChanged;
     public event Action<Guid, Guid?>? PlayerPovChanged;
+    public event Action<Guid, PlayerPovSettings>? PlayerPovSettingsChanged;
+    public event Action<Guid>? PlayerPovRecenterRequested;
     public event Action<Guid>? PreviewRequested;
     public event Action<Guid, double>? AddCutRequested;
     public event Action<Guid>? DeleteCutRequested;
@@ -109,12 +123,22 @@ public partial class CameraDirectorPanel : PanelContainer
 
     private void BuildUi()
     {
+        var scroll = new ScrollContainer
+        {
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        AddChild(scroll);
+
         var margin = new MarginContainer();
         margin.AddThemeConstantOverride("margin_left", 12);
         margin.AddThemeConstantOverride("margin_top", 10);
         margin.AddThemeConstantOverride("margin_right", 12);
         margin.AddThemeConstantOverride("margin_bottom", 10);
-        AddChild(margin);
+        margin.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        scroll.AddChild(margin);
 
         var stack = new VBoxContainer();
         stack.AddThemeConstantOverride("separation", 5);
@@ -153,6 +177,40 @@ public partial class CameraDirectorPanel : PanelContainer
         _playerOption = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _playerOption.ItemSelected += OnPlayerSelected;
         playerRow.AddChild(_playerOption);
+
+        var povModeRow = new HBoxContainer();
+        stack.AddChild(povModeRow);
+        povModeRow.AddChild(new Label { Text = "POV Mode", CustomMinimumSize = new Vector2(68, 0) });
+        _povModeOption = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        foreach (var mode in Enum.GetValues<PlayerPovMode>())
+            _povModeOption.AddItem(PovModeName(mode), (int)mode);
+        _povModeOption.ItemSelected += OnPovSettingsValueChanged;
+        povModeRow.AddChild(_povModeOption);
+        _recenterButton = AddButton(povModeRow, "Recenter", RequestPovRecenter);
+
+        var povSettings = new GridContainer { Columns = 4 };
+        stack.AddChild(povSettings);
+        _mouseSensitivity = AddPovField(povSettings, "Mouse", 0.01, 1, 0.01);
+        _controllerSensitivity = AddPovField(povSettings, "Controller", 10, 360, 5);
+        _stabilization = AddPovField(povSettings, "Stabilize", 0, 1, 0.05);
+        _headBob = AddPovField(povSettings, "Head bob", 0, 1, 0.05);
+        _pitchOffset = AddPovField(povSettings, "Pitch", -30, 30, 1);
+        _forwardOffset = AddPovField(povSettings, "Forward", 0, 0.25, 0.005);
+        _nearClip = AddPovField(povSettings, "Near clip", 0.005, 0.2, 0.005);
+
+        var targetRow = new HBoxContainer();
+        stack.AddChild(targetRow);
+        targetRow.AddChild(new Label { Text = "Look At", CustomMinimumSize = new Vector2(68, 0) });
+        _povTargetKindOption = new OptionButton { CustomMinimumSize = new Vector2(105, 0) };
+        foreach (var kind in Enum.GetValues<PlayerPovTargetKind>())
+            _povTargetKindOption.AddItem(PovTargetName(kind), (int)kind);
+        _povTargetKindOption.ItemSelected += OnPovSettingsValueChanged;
+        targetRow.AddChild(_povTargetKindOption);
+        _povTargetPlayerOption = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        _povTargetPlayerOption.ItemSelected += OnPovSettingsValueChanged;
+        targetRow.AddChild(_povTargetPlayerOption);
+
+        BuildPovTargetRow(stack);
 
         BuildVectorRow(stack, "Position", _position, -50, 50);
         BuildVectorRow(stack, "Rotation", _rotation, -360, 360);
@@ -194,6 +252,30 @@ public partial class CameraDirectorPanel : PanelContainer
         }
     }
 
+    private SpinBox AddPovField(GridContainer grid, string label, double minimum, double maximum, double step)
+    {
+        grid.AddChild(new Label { Text = label });
+        var field = CreateSpinBox(minimum, maximum, step);
+        field.CustomMinimumSize = new Vector2(60, 0);
+        field.ValueChanged += OnPovSettingsValueChanged;
+        grid.AddChild(field);
+        return field;
+    }
+
+    private void BuildPovTargetRow(Node parent)
+    {
+        var row = new HBoxContainer();
+        parent.AddChild(row);
+        row.AddChild(new Label { Text = "Target XYZ", CustomMinimumSize = new Vector2(68, 0) });
+        for (var index = 0; index < _povWorldTarget.Length; index++)
+        {
+            _povWorldTarget[index] = CreateSpinBox(-100, 100, 0.25);
+            _povWorldTarget[index].Prefix = index switch { 0 => "X ", 1 => "Y ", _ => "Z " };
+            _povWorldTarget[index].ValueChanged += OnPovSettingsValueChanged;
+            row.AddChild(_povWorldTarget[index]);
+        }
+    }
+
     private static SpinBox CreateSpinBox(double minimum, double maximum, double step = 1) => new()
     {
         MinValue = minimum,
@@ -208,10 +290,12 @@ public partial class CameraDirectorPanel : PanelContainer
     {
         _playerIds.Clear();
         _playerOption.Clear();
+        _povTargetPlayerOption.Clear();
         foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
         {
             _playerIds.Add(player.Id);
             _playerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
+            _povTargetPlayerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
         }
     }
 
@@ -225,11 +309,24 @@ public partial class CameraDirectorPanel : PanelContainer
         SetVector(_position, camera.Position);
         SetVector(_rotation, camera.RotationDegrees);
         _fov.Value = camera.FieldOfView;
+        var settings = camera.PovSettings;
+        _povModeOption.Select((int)settings.Mode);
+        _mouseSensitivity.Value = settings.MouseSensitivity;
+        _controllerSensitivity.Value = settings.ControllerSensitivity;
+        _stabilization.Value = settings.StabilizationStrength;
+        _headBob.Value = settings.HeadBobStrength;
+        _pitchOffset.Value = settings.PitchOffsetDegrees;
+        _forwardOffset.Value = settings.ForwardOffset;
+        _nearClip.Value = settings.NearClip;
+        _povTargetKindOption.Select((int)settings.TargetKind);
+        SetVector(_povWorldTarget, settings.WorldTarget);
         var playerIndex = camera.PlayerId.HasValue ? _playerIds.IndexOf(camera.PlayerId.Value) : -1;
         if (playerIndex >= 0)
             _playerOption.Select(playerIndex);
         else
             _playerOption.Select(-1);
+        var targetPlayerIndex = settings.TargetPlayerId.HasValue ? _playerIds.IndexOf(settings.TargetPlayerId.Value) : -1;
+        _povTargetPlayerOption.Select(targetPlayerIndex);
         UpdateFieldAvailability(true);
     }
 
@@ -253,7 +350,21 @@ public partial class CameraDirectorPanel : PanelContainer
         foreach (var spinBox in _position.Concat(_rotation))
             spinBox.Editable = free;
         _fov.Editable = free;
-        _playerOption.Disabled = !panelEnabled || type != CameraType.PlayerPov;
+        var pov = panelEnabled && type == CameraType.PlayerPov;
+        _playerOption.Disabled = !pov;
+        _povModeOption.Disabled = !pov;
+        foreach (var field in new[]
+                 {
+                     _mouseSensitivity, _controllerSensitivity, _stabilization, _headBob,
+                     _pitchOffset, _forwardOffset, _nearClip
+                 })
+            field.Editable = pov;
+        var lookAt = pov && SelectedPovMode() == PlayerPovMode.LookAtTarget;
+        _povTargetKindOption.Disabled = !lookAt;
+        _povTargetPlayerOption.Disabled = !lookAt || SelectedPovTargetKind() != PlayerPovTargetKind.Player;
+        foreach (var field in _povWorldTarget)
+            field.Editable = lookAt && SelectedPovTargetKind() == PlayerPovTargetKind.WorldPoint;
+        _recenterButton.Disabled = !pov || SelectedPovMode() != PlayerPovMode.FreeLook;
     }
 
     private void OnCameraSelected(long index)
@@ -282,7 +393,36 @@ public partial class CameraDirectorPanel : PanelContainer
         PlayerPovChanged?.Invoke(_activeCameraId, playerId);
     }
 
-    private void OnFreeValueChanged(double _) 
+    private void OnPovSettingsValueChanged(long _) => RequestPovSettingsChange();
+
+    private void OnPovSettingsValueChanged(double _) => RequestPovSettingsChange();
+
+    private void RequestPovSettingsChange()
+    {
+        if (_refreshing || _activeCameraId == Guid.Empty)
+            return;
+        var targetIndex = _povTargetPlayerOption.Selected;
+        var targetPlayer = targetIndex >= 0 && targetIndex < _playerIds.Count
+            ? _playerIds[targetIndex]
+            : (Guid?)null;
+        PlayerPovSettingsChanged?.Invoke(
+            _activeCameraId,
+            new PlayerPovSettings(
+                SelectedPovMode(),
+                (float)_mouseSensitivity.Value,
+                (float)_controllerSensitivity.Value,
+                (float)_stabilization.Value,
+                (float)_headBob.Value,
+                (float)_pitchOffset.Value,
+                (float)_forwardOffset.Value,
+                (float)_nearClip.Value,
+                SelectedPovTargetKind(),
+                targetPlayer,
+                ReadVector(_povWorldTarget)));
+        UpdateFieldAvailability(true);
+    }
+
+    private void OnFreeValueChanged(double _)
     {
         if (_refreshing || _activeCameraId == Guid.Empty)
             return;
@@ -297,6 +437,7 @@ public partial class CameraDirectorPanel : PanelContainer
     private void RequestDuplicate() => DuplicateRequested?.Invoke(_activeCameraId);
     private void RequestDelete() => DeleteRequested?.Invoke(_activeCameraId);
     private void RequestPreview() => PreviewRequested?.Invoke(_activeCameraId);
+    private void RequestPovRecenter() => PlayerPovRecenterRequested?.Invoke(_activeCameraId);
     private void RequestAddCut() => AddCutRequested?.Invoke(_activeCameraId, _cutTime.Value);
 
     private void RequestDeleteCut()
@@ -306,12 +447,13 @@ public partial class CameraDirectorPanel : PanelContainer
             DeleteCutRequested?.Invoke(_cutIds[selected[0]]);
     }
 
-    private void AddButton(Node parent, string text, Action action)
+    private Button AddButton(Node parent, string text, Action action)
     {
         var button = new Button { Text = text };
         button.Pressed += action;
         parent.AddChild(button);
         _buttons.Add(button);
+        return button;
     }
 
     private static CameraVector ReadVector(IReadOnlyList<SpinBox> values) =>
@@ -332,5 +474,27 @@ public partial class CameraDirectorPanel : PanelContainer
         CameraType.PlayerPov => "Player POV",
         CameraType.FreeCamera => "Free Camera",
         _ => type.ToString()
+    };
+
+    private PlayerPovMode SelectedPovMode() =>
+        (PlayerPovMode)_povModeOption.GetItemId(_povModeOption.Selected);
+
+    private PlayerPovTargetKind SelectedPovTargetKind() =>
+        (PlayerPovTargetKind)_povTargetKindOption.GetItemId(_povTargetKindOption.Selected);
+
+    private static string PovModeName(PlayerPovMode mode) => mode switch
+    {
+        PlayerPovMode.LockedForward => "Locked Forward",
+        PlayerPovMode.FreeLook => "Free Look",
+        PlayerPovMode.LookAtTarget => "Look At Target",
+        _ => mode.ToString()
+    };
+
+    private static string PovTargetName(PlayerPovTargetKind kind) => kind switch
+    {
+        PlayerPovTargetKind.Player => "Player",
+        PlayerPovTargetKind.Football => "Football",
+        PlayerPovTargetKind.WorldPoint => "World Point",
+        _ => kind.ToString()
     };
 }

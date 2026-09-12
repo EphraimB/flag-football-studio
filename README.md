@@ -79,7 +79,9 @@ animation foundation.
   commands while `Main` applies those commands to domain state.
 - `CameraDefinition` and `CameraCut` are Godot-independent descriptions of
   reusable cameras and per-play cut timing. `GameProject` owns both collections,
-  and the existing JSON project file persists them.
+  and the existing JSON project file persists them. `PlayerPovSettings` stores
+  the selected POV mode, sensitivities, stabilization/head-bob strengths, camera
+  offsets, near clip, and Look At target without depending on Godot types.
 - `CameraDirectorPanel` edits camera data. `CameraDirectorController` is the
   presentation adapter that positions the Godot `Camera3D`, stabilizes Player
   POV views, applies camera-specific first-person visibility, and performs timed
@@ -153,14 +155,24 @@ current operating system's per-user application-data directory.
 - **Type** selects Broadcast Wide, Sideline Low, End Zone, Player POV, or Free
   Camera.
 - For **Player POV**, choose a Gold or Navy player from **POV Player**.
+- **POV Mode** provides **Locked Forward**, **Free Look**, and **Look At Target**.
+  Locked Forward retains the stabilized forward view. Free Look layers clamped
+  mouse or controller yaw/pitch over the mount. Look At Target smoothly tracks
+  another player, the football, or a world-space XYZ point without changing eye
+  gaze.
+- The compact POV settings grid edits mouse and controller sensitivity,
+  stabilization strength, head-bob strength, pitch offset, forward offset, and
+  near clip. **Recenter** smoothly returns transient view angles to player
+  forward.
 - For **Free Camera**, edit position, rotation in degrees, and FOV. Changes are
   previewed immediately; **Preview** reapplies the selected camera at any time.
 - Enter a time in seconds and choose **Add Cut** to add the selected camera to
   the current play's cut list. Select a cut and choose **Delete Cut** to remove
   it. Timed cuts run when **Run Play** is pressed.
 
-Camera definitions and cuts are included whenever **Save Project** is used and
-are restored by **Load Project**.
+Camera definitions, cuts, and the saved POV settings are included whenever
+**Save Project** is used and are restored by **Load Project**. Live Free Look
+yaw/pitch, recenter progress, and mouse-capture state are intentionally transient.
 
 Player POV uses a lightly damped mount that tracks the rig's stable,
 head-relative `EyeAnchor`. Root movement and turns remain immediate while small
@@ -174,6 +186,12 @@ excludes that layer while continuing to render the shared skinned torso, arms,
 hands, legs, feet, flags, and a caught football. Other cameras continue to
 include the head layer and therefore see the complete character. Eye gaze,
 blinks, and expressions remain independent from the camera mount.
+
+Free Look captures the mouse only while that mode is active. Move the mouse to
+look, press **R** or the controller right stick to recenter, and press **Escape**
+to release the mouse for studio UI interaction. Clicking an unhandled part of
+the 3D viewport recaptures it. Controller right-stick axes use the same clamped
+view limits: yaw ±110 degrees and total pitch from -75 to +65 degrees.
 
 Formation orientation is not stored per player. Positive play-field Y appears
 upfield in Play Director and maps to world positive Z. The offense faces its
@@ -330,6 +348,19 @@ orientation, POV-only head hiding, simultaneous broadcast head visibility,
 whole-body geometry, stabilized tracking through every animation state,
 gaze/expression/blink independence, and the caught-football hand anchor.
 
+### Interactive Player POV validation
+
+Run the focused mode/input validation with:
+
+```powershell
+godot --headless --path . -- --validate-pov-free-look
+```
+
+It checks Locked Forward compatibility, Free Look clamps and recentering,
+player/football/world target tracking, JSON round trips, transient-angle
+exclusion, mouse release/recapture, whole-body and broadcast visibility,
+animation stabilization, and independence from player facing and eye gaze.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -355,8 +386,10 @@ accessory combinations may still show small gaps, intersections, hard seams, or
 exaggerated silhouettes.
 
 First-person presentation uses render layers rather than a separate body mesh.
-The current procedural torso, limbs, and hands remain low-poly, the camera has no
-interactive free-look yet, and extreme animation poses can still bring shoulders
-or hands close to the near plane. Stabilization is deliberately modest and does
-not implement physical head inertia, collision avoidance, or a separate
-first-person animation set.
+The current procedural torso, limbs, and hands remain low-poly, and extreme
+animation poses can still bring shoulders or hands close to the near plane.
+Free Look has no physical neck/torso follow-through, target tracking respects the
+same realistic yaw/pitch clamps and therefore cannot center targets directly
+behind the player, and controller response uses a fixed Input Map deadzone.
+Stabilization does not implement physical head inertia, collision avoidance, or
+a separate first-person animation set.

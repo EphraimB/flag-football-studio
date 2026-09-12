@@ -11,7 +11,48 @@ public enum CameraType
     FreeCamera
 }
 
+public enum PlayerPovMode
+{
+    LockedForward,
+    FreeLook,
+    LookAtTarget
+}
+
+public enum PlayerPovTargetKind
+{
+    Player,
+    Football,
+    WorldPoint
+}
+
 public readonly record struct CameraVector(float X, float Y, float Z);
+
+public readonly record struct PlayerPovSettings(
+    PlayerPovMode Mode,
+    float MouseSensitivity,
+    float ControllerSensitivity,
+    float StabilizationStrength,
+    float HeadBobStrength,
+    float PitchOffsetDegrees,
+    float ForwardOffset,
+    float NearClip,
+    PlayerPovTargetKind TargetKind,
+    Guid? TargetPlayerId,
+    CameraVector WorldTarget)
+{
+    public static PlayerPovSettings Default => new(
+        PlayerPovMode.LockedForward,
+        0.12f,
+        120f,
+        0.72f,
+        1,
+        -6,
+        0.055f,
+        0.025f,
+        PlayerPovTargetKind.Football,
+        null,
+        new CameraVector(0, 1, 0));
+}
 
 public sealed class CameraDefinition
 {
@@ -25,6 +66,7 @@ public sealed class CameraDefinition
         Position = new CameraVector(15, 19, 24);
         RotationDegrees = new CameraVector(-32, 32, 0);
         FieldOfView = 52;
+        PovSettings = PlayerPovSettings.Default;
     }
 
     public Guid Id { get; }
@@ -34,6 +76,7 @@ public sealed class CameraDefinition
     public CameraVector RotationDegrees { get; private set; }
     public float FieldOfView { get; private set; }
     public Guid? PlayerId { get; private set; }
+    public PlayerPovSettings PovSettings { get; private set; }
 
     public void Rename(string name) => Name = ValidateName(name);
 
@@ -53,6 +96,33 @@ public sealed class CameraDefinition
         if (playerId == Guid.Empty)
             throw new ArgumentException("A Player POV target cannot be empty.", nameof(playerId));
         PlayerId = playerId;
+        if (PovSettings.TargetPlayerId == playerId)
+            PovSettings = PovSettings with { TargetPlayerId = null };
+    }
+
+    public void SetPlayerPovSettings(PlayerPovSettings settings)
+    {
+        if (!Enum.IsDefined(settings.Mode))
+            throw new ArgumentOutOfRangeException(nameof(settings), "Unknown Player POV mode.");
+        if (!Enum.IsDefined(settings.TargetKind))
+            throw new ArgumentOutOfRangeException(nameof(settings), "Unknown Player POV target type.");
+        if (settings.TargetPlayerId == Guid.Empty)
+            throw new ArgumentException("A Player POV target player cannot be empty.", nameof(settings));
+        if (settings.TargetKind == PlayerPovTargetKind.Player && settings.TargetPlayerId == PlayerId)
+            throw new ArgumentException("A Player POV camera must look at another player.", nameof(settings));
+        if (!Finite(settings.WorldTarget))
+            throw new ArgumentException("The Player POV world target must be finite.", nameof(settings));
+
+        PovSettings = settings with
+        {
+            MouseSensitivity = Math.Clamp(settings.MouseSensitivity, 0.01f, 1f),
+            ControllerSensitivity = Math.Clamp(settings.ControllerSensitivity, 10f, 360f),
+            StabilizationStrength = Math.Clamp(settings.StabilizationStrength, 0, 1),
+            HeadBobStrength = Math.Clamp(settings.HeadBobStrength, 0, 1),
+            PitchOffsetDegrees = Math.Clamp(settings.PitchOffsetDegrees, -30, 30),
+            ForwardOffset = Math.Clamp(settings.ForwardOffset, 0, 0.25f),
+            NearClip = Math.Clamp(settings.NearClip, 0.005f, 0.2f)
+        };
     }
 
     public CameraDefinition Duplicate(string name)
@@ -60,8 +130,12 @@ public sealed class CameraDefinition
         var copy = new CameraDefinition(Guid.NewGuid(), name, Type);
         copy.SetFreeCamera(Position, RotationDegrees, FieldOfView);
         copy.SetPlayer(PlayerId);
+        copy.SetPlayerPovSettings(PovSettings);
         return copy;
     }
+
+    private static bool Finite(CameraVector vector) =>
+        float.IsFinite(vector.X) && float.IsFinite(vector.Y) && float.IsFinite(vector.Z);
 
     private static string ValidateName(string name)
     {

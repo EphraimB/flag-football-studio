@@ -48,7 +48,7 @@ public partial class Main : Node3D
 
         _cameraController = new CameraDirectorController { Name = "CameraDirectorController" };
         AddChild(_cameraController);
-        _cameraController.Configure(_previewCamera, this, _pawns);
+        _cameraController.Configure(_previewCamera, this, _pawns, _football);
         PreviewSelectedCamera();
 
         _sequence = new PlaySequenceController { Name = "PlaySequenceController" };
@@ -73,6 +73,8 @@ public partial class Main : Node3D
         _cameraDirector.TypeChanged += OnCameraTypeChanged;
         _cameraDirector.FreeCameraChanged += OnFreeCameraChanged;
         _cameraDirector.PlayerPovChanged += OnPlayerPovChanged;
+        _cameraDirector.PlayerPovSettingsChanged += OnPlayerPovSettingsChanged;
+        _cameraDirector.PlayerPovRecenterRequested += OnPlayerPovRecenterRequested;
         _cameraDirector.PreviewRequested += OnCameraPreviewRequested;
         _cameraDirector.AddCutRequested += OnAddCameraCutRequested;
         _cameraDirector.DeleteCutRequested += OnDeleteCameraCutRequested;
@@ -87,7 +89,9 @@ public partial class Main : Node3D
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-facing-pov"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-pov-free-look"))
+            CallDeferred(nameof(RunPovFreeLookValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-facing-pov"))
             CallDeferred(nameof(RunFacingPovValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-mouth"))
             CallDeferred(nameof(RunMouthValidation));
@@ -99,6 +103,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunPovFreeLookValidation()
+    {
+        var validator = new PovFreeLookValidator { Name = "PovFreeLookValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Player POV free-look validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunFacingPovValidation()
@@ -514,7 +535,7 @@ public partial class Main : Node3D
         _uniformStudio.SetProject(_project);
         ApplyFormation();
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
-        _cameraController.Configure(_previewCamera, this, _pawns);
+        _cameraController.Configure(_previewCamera, this, _pawns, _football);
         PreviewSelectedCamera();
     }
 
@@ -594,6 +615,32 @@ public partial class Main : Node3D
     {
         _project.Camera(cameraId).SetPlayer(playerId);
         PreviewSelectedCamera();
+    }
+
+    private void OnPlayerPovSettingsChanged(Guid cameraId, PlayerPovSettings settings)
+    {
+        try
+        {
+            var camera = _project.Camera(cameraId);
+            var enteringFreeLook = camera.PovSettings.Mode != PlayerPovMode.FreeLook &&
+                                   settings.Mode == PlayerPovMode.FreeLook;
+            camera.SetPlayerPovSettings(settings);
+            if (cameraId == _selectedCameraId)
+                _cameraController.Preview(camera, _play, enteringFreeLook);
+        }
+        catch (Exception exception)
+        {
+            _cameraDirector.RefreshAll();
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnPlayerPovRecenterRequested(Guid cameraId)
+    {
+        if (cameraId != _selectedCameraId)
+            return;
+        _cameraController.RecenterPlayerPov();
+        _gameDirector.SetStatus("Player POV recentering");
     }
 
     private void OnCameraPreviewRequested(Guid cameraId)

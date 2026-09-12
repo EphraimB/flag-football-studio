@@ -367,6 +367,7 @@ public sealed class ProjectJsonSerializer
         public CameraVector RotationDegrees { get; set; }
         public float FieldOfView { get; set; }
         public Guid? PlayerId { get; set; }
+        public PlayerPovSettings? PlayerPovSettings { get; set; }
 
         public static CameraData FromDomain(CameraDefinition camera) => new()
         {
@@ -376,7 +377,8 @@ public sealed class ProjectJsonSerializer
             Position = camera.Position,
             RotationDegrees = camera.RotationDegrees,
             FieldOfView = camera.FieldOfView,
-            PlayerId = camera.PlayerId
+            PlayerId = camera.PlayerId,
+            PlayerPovSettings = camera.PovSettings
         };
 
         public CameraDefinition ToDomain()
@@ -384,6 +386,8 @@ public sealed class ProjectJsonSerializer
             var camera = new CameraDefinition(Id, Name, Type);
             camera.SetFreeCamera(Position, RotationDegrees, FieldOfView);
             camera.SetPlayer(PlayerId);
+            if (PlayerPovSettings.HasValue)
+                camera.SetPlayerPovSettings(PlayerPovSettings.Value);
             return camera;
         }
     }
