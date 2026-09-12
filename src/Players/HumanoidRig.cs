@@ -7,8 +7,12 @@ namespace FlagFootballStudio.Presentation;
 
 public partial class HumanoidRig : Node3D
 {
+    public const int FirstPersonHeadLayerNumber = 20;
+    public const uint FirstPersonHeadLayerMask = 1u << (FirstPersonHeadLayerNumber - 1);
+
     private readonly Dictionary<string, BoneAttachment3D> _attachments = [];
     private readonly List<Node> _generatedDetails = [];
+    private readonly Dictionary<GeometryInstance3D, uint> _headGeometryLayers = [];
     private Skeleton3D _skeleton = null!;
     private MeshInstance3D _bodyMesh = null!;
     private MeshInstance3D _faceMesh = null!;
@@ -21,6 +25,7 @@ public partial class HumanoidRig : Node3D
     private FaceAppearance? _faceAppearance;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
+    private bool _firstPersonViewActive;
 
     public Node3D EyeAnchor => _eyeAnchor;
     public Node3D CatchAnchor => _catchAnchor;
@@ -53,6 +58,8 @@ public partial class HumanoidRig : Node3D
     public ArrayMesh FaceMeshResource => (ArrayMesh)_faceMesh.Mesh;
     public string TopologySignature => HumanoidSkinnedMesh.TopologySignature;
     public int SkeletonBoneCount => _skeleton.GetBoneCount();
+    public bool FirstPersonViewActive => _firstPersonViewActive;
+    public Aabb BodyBounds => _bodyMesh.Mesh.GetAabb();
 
     public override void _Ready()
     {
@@ -69,6 +76,8 @@ public partial class HumanoidRig : Node3D
         if (!IsNodeReady())
             throw new InvalidOperationException("The humanoid rig must be in the scene tree before it is configured.");
 
+        if (_firstPersonViewActive)
+            RestoreHeadGeometryLayers();
         ClearGeneratedDetails();
         ApplyProportions(appearance);
 
@@ -101,6 +110,8 @@ public partial class HumanoidRig : Node3D
         _hairRig.Configure(appearance.Hair, appearance.Face, appearance.Accessories);
         AddAccessories(appearance.Accessories, secondary, appearance.Face);
         AddUniformLabels(player, uniform);
+        if (_firstPersonViewActive)
+            ApplyFirstPersonHeadLayer();
     }
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _animator.SetState(state, restart);
@@ -120,6 +131,34 @@ public partial class HumanoidRig : Node3D
         _mouthController.SetManualControls(jawOpen, width, lipFullness, upperLip, lowerLip);
     public void StartSpeechShapeCycle(float holdSeconds = SpeechMouthController.DefaultCycleHoldSeconds) =>
         _mouthController.StartCycle(holdSeconds);
+
+    public void SetFirstPersonView(bool active)
+    {
+        _firstPersonViewActive = active;
+        if (active)
+            ApplyFirstPersonHeadLayer();
+        else
+            RestoreHeadGeometryLayers();
+    }
+
+    public bool HeadGeometryVisibleTo(Camera3D camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        var found = false;
+        foreach (var geometry in GeometryBelow(_attachments[HumanoidSkeletonDefinition.Head]))
+        {
+            found = true;
+            if ((geometry.Layers & camera.CullMask) != 0)
+                return true;
+        }
+        return !found;
+    }
+
+    public bool BodyGeometryVisibleTo(Camera3D camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        return (_bodyMesh.Layers & camera.CullMask) != 0;
+    }
 
     public Transform3D BoneGlobalPose(string boneName)
     {
@@ -350,6 +389,37 @@ public partial class HumanoidRig : Node3D
             detail.QueueFree();
         }
         _generatedDetails.Clear();
+    }
+
+    private void ApplyFirstPersonHeadLayer()
+    {
+        foreach (var geometry in GeometryBelow(_attachments[HumanoidSkeletonDefinition.Head]))
+        {
+            if (!_headGeometryLayers.ContainsKey(geometry))
+                _headGeometryLayers[geometry] = geometry.Layers;
+            geometry.Layers = FirstPersonHeadLayerMask;
+        }
+    }
+
+    private void RestoreHeadGeometryLayers()
+    {
+        foreach (var entry in _headGeometryLayers)
+        {
+            if (GodotObject.IsInstanceValid(entry.Key))
+                entry.Key.Layers = entry.Value;
+        }
+        _headGeometryLayers.Clear();
+    }
+
+    private static IEnumerable<GeometryInstance3D> GeometryBelow(Node root)
+    {
+        foreach (var child in root.GetChildren())
+        {
+            if (child is GeometryInstance3D geometry)
+                yield return geometry;
+            foreach (var descendant in GeometryBelow(child))
+                yield return descendant;
+        }
     }
 
     private static StandardMaterial3D CreateMaterial(Color color, bool transparent = false) => new()

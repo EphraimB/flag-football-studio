@@ -38,8 +38,8 @@ public partial class Main : Node3D
         _selectedCameraId = _project.Cameras[0].Id;
         AddChild(_fieldScene.Instantiate());
         BuildLightingAndCamera();
-        SpawnTeam(_game.Gold, 0);
-        SpawnTeam(_game.Navy, Mathf.Pi);
+        SpawnTeam(_game.Gold);
+        SpawnTeam(_game.Navy);
 
         _football = new FootballView { Name = "Football" };
         AddChild(_football);
@@ -53,7 +53,7 @@ public partial class Main : Node3D
 
         _sequence = new PlaySequenceController { Name = "PlaySequenceController" };
         AddChild(_sequence);
-        _sequence.Configure(_play, _pawns, _football, this, _statusLabel);
+        _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
 
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
@@ -87,7 +87,9 @@ public partial class Main : Node3D
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-mouth"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-facing-pov"))
+            CallDeferred(nameof(RunFacingPovValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-mouth"))
             CallDeferred(nameof(RunMouthValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-hair"))
             CallDeferred(nameof(RunHairValidation));
@@ -97,6 +99,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunFacingPovValidation()
+    {
+        var validator = new FacingPovValidator { Name = "FacingPovValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Formation facing and Player POV validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunMouthValidation()
@@ -184,7 +203,7 @@ public partial class Main : Node3D
         }
     }
 
-    private void SpawnTeam(Team team, float rotationY)
+    private void SpawnTeam(Team team)
     {
         for (var index = 0; index < team.Roster.Count; index++)
         {
@@ -194,7 +213,6 @@ public partial class Main : Node3D
                 team.Roster[index],
                 _project.AppearanceFor(team.Roster[index].Id),
                 _project.ActiveUniformFor(team.Id));
-            pawn.SetFormationFacing(rotationY);
             AddChild(pawn);
             _pawns.Add(team.Roster[index].Id, pawn);
         }
@@ -297,7 +315,7 @@ public partial class Main : Node3D
             MouseFilter = Control.MouseFilterEnum.Stop
         };
         canvas.AddChild(_director);
-        _director.Configure(_game, _play);
+        _director.Configure(_game, _play, _project.Possession.Id);
     }
 
     private void ApplyFormation()
@@ -309,11 +327,18 @@ public partial class Main : Node3D
                 pawn.ResetPresentationPose();
         }
 
-        var center = _game.Gold.Roster.First(player => player.Position == PlayerPosition.Center);
-        var centerPosition = _play.StartingPositions[center.Id];
+        var direction = FormationFacing.Apply(_play, OffenseTeam, DefenseTeam, _pawns);
+        if (_director is not null)
+            _director.SetPossession(_project.Possession.Id);
+
+        var snapper = FindSnapper(direction);
+        var snapperPosition = _play.StartingPositions[snapper.Id];
         if (_football.GetParent() != this)
             _football.Reparent(this, false);
-        _football.Position = new Vector3(centerPosition.X, 0.9f, centerPosition.Y + 0.35f);
+        _football.Position = new Vector3(
+            snapperPosition.X,
+            0.9f,
+            snapperPosition.Y + PlayDirectionResolver.Sign(direction) * 0.35f);
     }
 
     private void OnFormationChanged()
@@ -339,7 +364,7 @@ public partial class Main : Node3D
         if (_sequence.IsRunning)
             return;
         ApplyFormation();
-        _sequence.SetPlay(_play, _football.Position);
+        _sequence.SetPlay(_play, _football.Position, OffenseTeam, DefenseTeam);
         _director.SetEditingEnabled(false);
         _gameDirector.SetInteractionEnabled(false);
         _cameraDirector.SetInteractionEnabled(false);
@@ -457,7 +482,7 @@ public partial class Main : Node3D
         _gameDirector.SetActivePlay(_play.Id);
         _cameraDirector.SetPlay(_play);
         ApplyFormation();
-        _sequence.SetPlay(_play, _football.Position);
+        _sequence.SetPlay(_play, _football.Position, OffenseTeam, DefenseTeam);
         PreviewSelectedCamera();
         _gameDirector.SetStatus(status);
     }
@@ -479,16 +504,16 @@ public partial class Main : Node3D
         _game = new Game(project.HomeTeam, project.AwayTeam);
         EnsureCameraLibrary();
         _selectedCameraId = _project.Cameras[0].Id;
-        SpawnTeam(_game.Gold, 0);
-        SpawnTeam(_game.Navy, Mathf.Pi);
+        SpawnTeam(_game.Gold);
+        SpawnTeam(_game.Navy);
         _play = project.Plays[0];
-        _director.SetGameAndPlay(_game, _play);
+        _director.SetGameAndPlay(_game, _play, _project.Possession.Id);
         _gameDirector.SetProject(_project, _play.Id);
         _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         _playerStudio.SetProject(_project, _game);
         _uniformStudio.SetProject(_project);
         ApplyFormation();
-        _sequence.Configure(_play, _pawns, _football, this, _statusLabel);
+        _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
         _cameraController.Configure(_previewCamera, this, _pawns);
         PreviewSelectedCamera();
     }
@@ -721,6 +746,23 @@ public partial class Main : Node3D
         _pawns.TryGetValue(playerId, out var node) && node is PlayerPawn pawn
             ? pawn
             : throw new KeyNotFoundException("The requested player pawn is not in the preview.");
+
+    private Team OffenseTeam => _project.Possession;
+
+    private Team DefenseTeam => OffenseTeam.Id == _game.Gold.Id ? _game.Navy : _game.Gold;
+
+    private Player FindSnapper(FieldDirection direction)
+    {
+        var center = OffenseTeam.Roster.FirstOrDefault(player =>
+            player.Position == PlayerPosition.Center && _play.StartingPositions.ContainsKey(player.Id));
+        if (center is not null)
+            return center;
+
+        return OffenseTeam.Roster
+            .Where(player => _play.StartingPositions.ContainsKey(player.Id))
+            .OrderByDescending(player => _play.StartingPositions[player.Id].Y * PlayDirectionResolver.Sign(direction))
+            .First();
+    }
 
     private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);
 }

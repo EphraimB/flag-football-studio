@@ -20,7 +20,13 @@ public partial class PlayDirectorPanel : Control
     private readonly Dictionary<Guid, Player> _players = [];
     private readonly HashSet<Guid> _goldIds = [];
     private readonly HashSet<Guid> _navyIds = [];
+    private readonly HashSet<Guid> _offenseIds = [];
+    private readonly HashSet<Guid> _defenseIds = [];
     private readonly List<Button> _buttons = [];
+    private Team _gold = null!;
+    private Team _navy = null!;
+    private Team _offense = null!;
+    private Team _defense = null!;
     private PlayDefinition _play = null!;
     private EditorMode _mode = EditorMode.Move;
     private Guid? _selectedPlayerId;
@@ -31,23 +37,25 @@ public partial class PlayDirectorPanel : Control
     public event Action? ResetRequested;
     public event Action? RunRequested;
 
-    public void Configure(Game game, PlayDefinition play)
+    public void Configure(Game game, PlayDefinition play, Guid possessionTeamId)
     {
-        SetRoster(game);
+        SetRoster(game, possessionTeamId);
         _play = play;
         BuildToolbar();
         UpdateInstructions();
         QueueRedraw();
     }
 
-    public void SetGameAndPlay(Game game, PlayDefinition play)
+    public void SetGameAndPlay(Game game, PlayDefinition play, Guid possessionTeamId)
     {
-        SetRoster(game);
+        SetRoster(game, possessionTeamId);
         SetPlay(play);
     }
 
-    private void SetRoster(Game game)
+    private void SetRoster(Game game, Guid possessionTeamId)
     {
+        _gold = game.Gold;
+        _navy = game.Navy;
         _players.Clear();
         _goldIds.Clear();
         _navyIds.Clear();
@@ -61,6 +69,24 @@ public partial class PlayDirectorPanel : Control
             _players.Add(player.Id, player);
             _navyIds.Add(player.Id);
         }
+        SetPossession(possessionTeamId);
+    }
+
+    public void SetPossession(Guid possessionTeamId)
+    {
+        _offense = possessionTeamId == _gold.Id
+            ? _gold
+            : possessionTeamId == _navy.Id
+                ? _navy
+                : throw new ArgumentException("Possession must belong to Gold or Navy.", nameof(possessionTeamId));
+        _defense = _offense.Id == _gold.Id ? _navy : _gold;
+        _offenseIds.Clear();
+        _defenseIds.Clear();
+        foreach (var player in _offense.Roster)
+            _offenseIds.Add(player.Id);
+        foreach (var player in _defense.Roster)
+            _defenseIds.Add(player.Id);
+        QueueRedraw();
     }
 
     public void SetPlay(PlayDefinition play)
@@ -157,11 +183,11 @@ public partial class PlayDirectorPanel : Control
                 }
                 break;
             case EditorMode.Route:
-                if (hit.HasValue && _goldIds.Contains(hit.Value))
+                if (hit.HasValue && _offenseIds.Contains(hit.Value))
                 {
                     _selectedPlayerId = hit;
                 }
-                else if (_selectedPlayerId.HasValue && _goldIds.Contains(_selectedPlayerId.Value))
+                else if (_selectedPlayerId.HasValue && _offenseIds.Contains(_selectedPlayerId.Value))
                 {
                     var waypoints = _play.Routes.TryGetValue(_selectedPlayerId.Value, out var route)
                         ? route.ToList()
@@ -171,20 +197,20 @@ public partial class PlayDirectorPanel : Control
                 }
                 break;
             case EditorMode.Coverage:
-                if (hit.HasValue && _navyIds.Contains(hit.Value))
+                if (hit.HasValue && _defenseIds.Contains(hit.Value))
                     _selectedPlayerId = hit;
-                else if (hit.HasValue && _goldIds.Contains(hit.Value) && _selectedPlayerId.HasValue && _navyIds.Contains(_selectedPlayerId.Value))
+                else if (hit.HasValue && _offenseIds.Contains(hit.Value) && _selectedPlayerId.HasValue && _defenseIds.Contains(_selectedPlayerId.Value))
                     _play.AssignCoverage(_selectedPlayerId.Value, hit.Value);
                 break;
             case EditorMode.Quarterback:
-                if (hit.HasValue && _goldIds.Contains(hit.Value))
+                if (hit.HasValue && _offenseIds.Contains(hit.Value))
                 {
                     _selectedPlayerId = hit;
                     _play.SetQuarterback(hit.Value);
                 }
                 break;
             case EditorMode.Target:
-                if (hit.HasValue && _goldIds.Contains(hit.Value))
+                if (hit.HasValue && _offenseIds.Contains(hit.Value))
                 {
                     _selectedPlayerId = hit;
                     _play.SetIntendedReceiver(hit.Value);
@@ -248,7 +274,7 @@ public partial class PlayDirectorPanel : Control
 
     private void ClearSelectedRoute()
     {
-        if (_selectedPlayerId.HasValue && _goldIds.Contains(_selectedPlayerId.Value))
+        if (_selectedPlayerId.HasValue && _offenseIds.Contains(_selectedPlayerId.Value))
         {
             _play.SetRoute(_selectedPlayerId.Value, Array.Empty<PlayPoint>());
             QueueRedraw();
@@ -266,10 +292,10 @@ public partial class PlayDirectorPanel : Control
         _instructionLabel.Text = _mode switch
         {
             EditorMode.Move => "Drag any player into formation." + selected,
-            EditorMode.Route => "Select Gold, then click field waypoints." + selected,
-            EditorMode.Coverage => "Select Navy, then the Gold player covered." + selected,
-            EditorMode.Quarterback => "Click a Gold player to select the quarterback." + selected,
-            EditorMode.Target => "Click a Gold player to select the target." + selected,
+            EditorMode.Route => $"Select {_offense.Name}, then click field waypoints." + selected,
+            EditorMode.Coverage => $"Select {_defense.Name}, then the {_offense.Name} player covered." + selected,
+            EditorMode.Quarterback => $"Click a {_offense.Name} player to select the quarterback." + selected,
+            EditorMode.Target => $"Click a {_offense.Name} player to select the target." + selected,
             _ => string.Empty
         };
     }
@@ -281,6 +307,16 @@ public partial class PlayDirectorPanel : Control
         if (selected)
             DrawCircle(center, 19, Colors.White);
         DrawCircle(center, 15, TeamColor(playerId));
+
+        var attackDirection = PlayDirectionResolver.Resolve(_play, _offense, _defense);
+        var facingDirection = _offenseIds.Contains(playerId)
+            ? attackDirection
+            : attackDirection == FieldDirection.PositiveY
+                ? FieldDirection.NegativeY
+                : FieldDirection.PositiveY;
+        var facingTip = FieldToCanvas(PlayDirectionResolver.Advance(point, facingDirection, 1.7f));
+        DrawLine(center, facingTip, Colors.White, 3, true);
+        DrawCircle(facingTip, 3.5f, Colors.White);
 
         var jersey = _players[playerId].JerseyNumber.ToString();
         DrawString(ThemeDB.FallbackFont, center + new Vector2(-12, 5), jersey, HorizontalAlignment.Center, 24, 14, Colors.White);

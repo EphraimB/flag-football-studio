@@ -14,6 +14,8 @@ public partial class PlaySequenceController : Node
     private Node3D _football = null!;
     private Node3D _footballHome = null!;
     private Label _status = null!;
+    private Team _offense = null!;
+    private Team _defense = null!;
     private Vector3 _ballStart;
 
     public bool IsRunning { get; private set; }
@@ -23,20 +25,26 @@ public partial class PlaySequenceController : Node
         IReadOnlyDictionary<Guid, Node3D> pawns,
         Node3D football,
         Node3D footballHome,
-        Label status)
+        Label status,
+        Team offense,
+        Team defense)
     {
         _play = play;
         _pawns = pawns;
         _football = football;
         _footballHome = footballHome;
         _status = status;
+        _offense = offense;
+        _defense = defense;
         _ballStart = football.Position;
     }
 
-    public void SetPlay(PlayDefinition play, Vector3 ballStart)
+    public void SetPlay(PlayDefinition play, Vector3 ballStart, Team offense, Team defense)
     {
         _play = play;
         _ballStart = ballStart;
+        _offense = offense;
+        _defense = defense;
     }
 
     public async Task RunAsync()
@@ -118,6 +126,7 @@ public partial class PlaySequenceController : Node
             if (pawn is PlayerPawn playerPawn)
                 playerPawn.ResetPresentationPose();
         }
+        FormationFacing.Apply(_play, _offense, _defense, _pawns);
 
         if (_football.GetParent() != _footballHome)
             _football.Reparent(_footballHome, false);

@@ -9,6 +9,7 @@ public partial class PlayerPawn : Node3D
     private UniformDefinition _uniform = null!;
     private HumanoidRig _rig = null!;
     private float _formationRotationY;
+    private Tween? _facingTween;
 
     public Player? Player { get; private set; }
     public Node3D EyeAnchor => _rig.EyeAnchor;
@@ -25,6 +26,8 @@ public partial class PlayerPawn : Node3D
     public SpeechMouthShape MouthShape => _rig.MouthShape;
     public SpeechMouthPose MouthPose => _rig.MouthPose;
     public bool IsSpeechShapeCycling => _rig.IsSpeechShapeCycling;
+    public Vector3 ForwardDirection => -GlobalBasis.Z.Normalized();
+    public bool FirstPersonViewActive => _rig.FirstPersonViewActive;
 
     public void Configure(Player player, PlayerAppearance appearance, UniformDefinition uniform)
     {
@@ -40,24 +43,53 @@ public partial class PlayerPawn : Node3D
         ApplyCurrentPresentation();
     }
 
-    public void SetFormationFacing(float rotationY)
+    public void SetFormationFacingDirection(Vector3 worldDirection)
     {
-        _formationRotationY = rotationY;
-        Rotation = new Vector3(0, rotationY, 0);
+        _facingTween?.Kill();
+        _formationRotationY = YawFor(worldDirection);
+        Rotation = new Vector3(0, _formationRotationY, 0);
     }
 
     public void ResetPresentationPose()
     {
+        _facingTween?.Kill();
         Rotation = new Vector3(0, _formationRotationY, 0);
         SetAnimationState(HumanoidAnimationState.Idle);
     }
 
-    public void FaceToward(Vector3 globalTarget)
+    public void FaceToward(Vector3 globalTarget, float turnSeconds = 0.16f)
     {
         var target = new Vector3(globalTarget.X, GlobalPosition.Y, globalTarget.Z);
-        if (GlobalPosition.DistanceSquaredTo(target) > 0.0001f)
-            LookAt(target, Vector3.Up);
+        var direction = target - GlobalPosition;
+        if (direction.LengthSquared() <= 0.0001f)
+            return;
+
+        var targetYaw = YawFor(direction);
+        _facingTween?.Kill();
+        if (turnSeconds <= 0)
+        {
+            Rotation = new Vector3(0, targetYaw, 0);
+            return;
+        }
+
+        var startYaw = Rotation.Y;
+        var endYaw = startYaw + Mathf.AngleDifference(startYaw, targetYaw);
+        _facingTween = CreateTween();
+        _facingTween.TweenProperty(this, "rotation:y", endYaw, turnSeconds)
+            .SetTrans(Tween.TransitionType.Sine)
+            .SetEase(Tween.EaseType.InOut);
     }
+
+    public float FacingAlignment(Vector3 worldDirection)
+    {
+        var planar = new Vector3(worldDirection.X, 0, worldDirection.Z);
+        return planar.LengthSquared() <= 0.0001f ? 1 : ForwardDirection.Dot(planar.Normalized());
+    }
+
+    public void SetFirstPersonView(bool active) => _rig.SetFirstPersonView(active);
+    public bool HeadGeometryVisibleTo(Camera3D camera) => _rig.HeadGeometryVisibleTo(camera);
+    public bool BodyGeometryVisibleTo(Camera3D camera) => _rig.BodyGeometryVisibleTo(camera);
+    public Aabb BodyBounds => _rig.BodyBounds;
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _rig.SetAnimationState(state, restart);
     public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
@@ -101,5 +133,11 @@ public partial class PlayerPawn : Node3D
     {
         if (IsNodeReady() && Player is not null)
             _rig.Apply(Player, _appearance, _uniform);
+    }
+
+    private static float YawFor(Vector3 worldDirection)
+    {
+        var direction = new Vector3(worldDirection.X, 0, worldDirection.Z).Normalized();
+        return Mathf.Atan2(-direction.X, -direction.Z);
     }
 }

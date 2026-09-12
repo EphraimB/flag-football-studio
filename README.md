@@ -59,8 +59,11 @@ animation foundation.
   skeleton. It is presentation-only and does not add animation state to player
   identity or persisted project data.
 - `PlaySequenceController` owns deterministic tween-based choreography and
-  selects humanoid animation states for each action. The main studio scene
-  composes models, views, camera, lighting, and UI.
+  selects humanoid animation states for each action. `PlayDirectionResolver`
+  derives the offense's attacking field direction from possession and formation
+  separation; `FormationFacing` converts that convention to Godot's local `-Z`
+  character-forward axis. The main studio scene composes models, views, camera,
+  lighting, and UI.
 - `PlayDefinition` is the Godot-independent source of truth for formation
   positions, waypoint routes, defensive assignments, quarterback selection,
   and the intended receiver. Both the 2D editor and 3D playback consume it.
@@ -78,8 +81,9 @@ animation foundation.
   reusable cameras and per-play cut timing. `GameProject` owns both collections,
   and the existing JSON project file persists them.
 - `CameraDirectorPanel` edits camera data. `CameraDirectorController` is the
-  presentation adapter that positions the Godot `Camera3D`, attaches Player POV
-  views, and applies timed cuts during playback.
+  presentation adapter that positions the Godot `Camera3D`, stabilizes Player
+  POV views, applies camera-specific first-person visibility, and performs timed
+  cuts during playback.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for height,
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
   optional accessories. Its Godot-independent `FaceAppearance` value stores
@@ -158,9 +162,25 @@ current operating system's per-user application-data directory.
 Camera definitions and cuts are included whenever **Save Project** is used and
 are restored by **Load Project**.
 
-Player POV cameras attach to the rig's head-relative `EyeAnchor`, so they follow
-head animation and remain valid when Player Studio or Uniform Studio rebuilds
-the generated presentation.
+Player POV uses a lightly damped mount that tracks the rig's stable,
+head-relative `EyeAnchor`. Root movement and turns remain immediate while small
+skeletal head motion is smoothed. The camera sits slightly forward of the eyes,
+uses a short configurable near clip, and has a modest downward pitch so the
+torso and moving hands enter the view naturally.
+
+Only the selected player's head-attached face, eyes, mouth, hair, and head
+accessories move to the dedicated first-person head render layer. The POV camera
+excludes that layer while continuing to render the shared skinned torso, arms,
+hands, legs, feet, flags, and a caught football. Other cameras continue to
+include the head layer and therefore see the complete character. Eye gaze,
+blinks, and expressions remain independent from the camera mount.
+
+Formation orientation is not stored per player. Positive play-field Y appears
+upfield in Play Director and maps to world positive Z. The offense faces its
+resolved attacking direction, and the defense faces the reverse direction.
+Changing possession swaps the two roles; switching or resetting a play resolves
+the convention again from that play's formation. White direction ticks on the
+2D player markers show the same facing used by the 3D preview.
 
 ### Player Studio controls
 
@@ -296,6 +316,20 @@ topology, repeated full jaw opening, upper/lower-lip controls, smooth mouth and
 expression blending, deterministic speech-shape cycling, inner-mouth geometry,
 animation playback, hair preservation, and Player POV stability.
 
+### Formation-facing and Player POV validation
+
+Run the focused integration validation with:
+
+```powershell
+godot --headless --path . -- --validate-facing-pov
+```
+
+It checks Gold and Navy possession directions, mirrored play switching,
+formation reset, pre-snap and moving receiver/defender facing, quarterback throw
+orientation, POV-only head hiding, simultaneous broadcast head visibility,
+whole-body geometry, stabilized tracking through every animation state,
+gaze/expression/blink independence, and the caught-football hand anchor.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -319,3 +353,10 @@ wind, secondary motion, transparency cards, or photorealistic shading.
 Clearance for the headband and visor is approximate; extreme face, hair, and
 accessory combinations may still show small gaps, intersections, hard seams, or
 exaggerated silhouettes.
+
+First-person presentation uses render layers rather than a separate body mesh.
+The current procedural torso, limbs, and hands remain low-poly, the camera has no
+interactive free-look yet, and extreme animation poses can still bring shoulders
+or hands close to the near plane. Stabilization is deliberately modest and does
+not implement physical head inertia, collision avoidance, or a separate
+first-person animation set.
