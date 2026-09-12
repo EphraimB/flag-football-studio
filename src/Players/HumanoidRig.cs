@@ -8,8 +8,9 @@ namespace FlagFootballStudio.Presentation;
 public partial class HumanoidRig : Node3D
 {
     private readonly Dictionary<string, BoneAttachment3D> _attachments = [];
-    private readonly List<Node> _generatedVisuals = [];
+    private readonly List<Node> _generatedDetails = [];
     private Skeleton3D _skeleton = null!;
+    private MeshInstance3D _bodyMesh = null!;
     private HumanoidAnimator _animator = null!;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
@@ -17,10 +18,14 @@ public partial class HumanoidRig : Node3D
     public Node3D EyeAnchor => _eyeAnchor;
     public Node3D CatchAnchor => _catchAnchor;
     public HumanoidAnimationState AnimationState => _animator.State;
+    public Mesh BodyMeshResource => _bodyMesh.Mesh;
+    public string TopologySignature => HumanoidSkinnedMesh.TopologySignature;
+    public int SkeletonBoneCount => _skeleton.GetBoneCount();
 
     public override void _Ready()
     {
         BuildSkeleton();
+        BuildSkinnedBody();
         _animator = new HumanoidAnimator { Name = "Animator" };
         AddChild(_animator);
         _animator.Configure(_skeleton);
@@ -31,9 +36,8 @@ public partial class HumanoidRig : Node3D
         if (!IsNodeReady())
             throw new InvalidOperationException("The humanoid rig must be in the scene tree before it is configured.");
 
-        ClearGeneratedVisuals();
-        var buildScale = BodyBuildScale(appearance.BodyBuild);
-        Scale = new Vector3(buildScale, appearance.HeightMeters / 1.8f, buildScale);
+        ClearGeneratedDetails();
+        ApplyProportions(appearance);
 
         var primary = CreateMaterial(ToGodot(uniform.PrimaryColor));
         var secondary = CreateMaterial(ToGodot(uniform.SecondaryColor));
@@ -46,32 +50,19 @@ public partial class HumanoidRig : Node3D
         var hair = CreateMaterial(ToGodot(appearance.HairColor));
         var flag = CreateMaterial(ToGodot(uniform.FlagColor));
 
-        AddMesh(HumanoidSkeletonDefinition.Hips, "Shorts", new BoxMesh { Size = new Vector3(0.64f, 0.35f, 0.42f) }, new Vector3(0, -0.08f, 0), shorts);
-        AddMesh(HumanoidSkeletonDefinition.Spine, "JerseyBody", new CapsuleMesh { Radius = 0.37f, Height = 0.78f }, new Vector3(0, 0.16f, 0), jersey, new Vector3(1, 0.9f, 0.72f));
-        AddMesh(HumanoidSkeletonDefinition.Chest, "ShoulderPad", new BoxMesh { Size = new Vector3(1.02f, 0.24f, 0.48f) }, new Vector3(0, 0.08f, 0), primary);
-        AddMesh(HumanoidSkeletonDefinition.Chest, "AccentStripe", new BoxMesh { Size = new Vector3(0.1f, 0.55f, 0.035f) }, new Vector3(0, -0.12f, -0.37f), accent);
-        AddMesh(HumanoidSkeletonDefinition.Chest, "Collar", new CylinderMesh { TopRadius = 0.2f, BottomRadius = 0.24f, Height = 0.08f }, new Vector3(0, 0.27f, 0), collarTrim);
+        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Skin, skin);
+        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Jersey, jersey);
+        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Primary, primary);
+        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Shorts, shorts);
+        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Shoes, secondary);
 
-        AddLimb(HumanoidSkeletonDefinition.LeftUpperArm, "LeftUpperArmMesh", 0.14f, 0.48f, jersey);
-        AddLimb(HumanoidSkeletonDefinition.RightUpperArm, "RightUpperArmMesh", 0.14f, 0.48f, jersey);
-        AddMesh(HumanoidSkeletonDefinition.LeftUpperArm, "LeftSleeveTrim", new CylinderMesh { TopRadius = 0.155f, BottomRadius = 0.155f, Height = 0.11f }, new Vector3(0, -0.38f, 0), sleeveTrim);
-        AddMesh(HumanoidSkeletonDefinition.RightUpperArm, "RightSleeveTrim", new CylinderMesh { TopRadius = 0.155f, BottomRadius = 0.155f, Height = 0.11f }, new Vector3(0, -0.38f, 0), sleeveTrim);
-        AddLimb(HumanoidSkeletonDefinition.LeftLowerArm, "LeftForearm", 0.115f, 0.42f, skin);
-        AddLimb(HumanoidSkeletonDefinition.RightLowerArm, "RightForearm", 0.115f, 0.42f, skin);
-        AddMesh(HumanoidSkeletonDefinition.LeftHand, "LeftHandMesh", new SphereMesh { Radius = 0.14f, Height = 0.28f }, Vector3.Zero, skin);
-        AddMesh(HumanoidSkeletonDefinition.RightHand, "RightHandMesh", new SphereMesh { Radius = 0.14f, Height = 0.28f }, Vector3.Zero, skin);
-
-        AddLimb(HumanoidSkeletonDefinition.LeftUpperLeg, "LeftShortLeg", 0.18f, 0.52f, shorts);
-        AddLimb(HumanoidSkeletonDefinition.RightUpperLeg, "RightShortLeg", 0.18f, 0.52f, shorts);
-        AddLimb(HumanoidSkeletonDefinition.LeftLowerLeg, "LeftLowerLegMesh", 0.135f, 0.46f, skin);
-        AddLimb(HumanoidSkeletonDefinition.RightLowerLeg, "RightLowerLegMesh", 0.135f, 0.46f, skin);
-        AddMesh(HumanoidSkeletonDefinition.LeftFoot, "LeftShoe", new BoxMesh { Size = new Vector3(0.27f, 0.18f, 0.46f) }, new Vector3(0, 0, -0.1f), secondary);
-        AddMesh(HumanoidSkeletonDefinition.RightFoot, "RightShoe", new BoxMesh { Size = new Vector3(0.27f, 0.18f, 0.46f) }, new Vector3(0, 0, -0.1f), secondary);
-
-        AddMesh(HumanoidSkeletonDefinition.Head, "HeadMesh", new SphereMesh { Radius = 0.32f, Height = 0.64f }, new Vector3(0, 0.13f, 0), skin);
-        AddMesh(HumanoidSkeletonDefinition.Hips, "Belt", new BoxMesh { Size = new Vector3(0.7f, 0.1f, 0.45f) }, new Vector3(0, 0.12f, 0), secondary);
-        AddMesh(HumanoidSkeletonDefinition.Hips, "LeftFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(-0.42f, -0.08f, 0), flag);
-        AddMesh(HumanoidSkeletonDefinition.Hips, "RightFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(0.42f, -0.08f, 0), flag);
+        AddDetail(HumanoidSkeletonDefinition.Chest, "AccentStripe", new BoxMesh { Size = new Vector3(0.1f, 0.53f, 0.035f) }, new Vector3(0, -0.12f, -0.3f), accent);
+        AddDetail(HumanoidSkeletonDefinition.Chest, "Collar", new CylinderMesh { TopRadius = 0.2f, BottomRadius = 0.24f, Height = 0.08f }, new Vector3(0, 0.27f, 0), collarTrim);
+        AddDetail(HumanoidSkeletonDefinition.LeftUpperArm, "LeftSleeveTrim", new CylinderMesh { TopRadius = 0.155f, BottomRadius = 0.155f, Height = 0.11f }, new Vector3(0, -0.38f, 0), sleeveTrim);
+        AddDetail(HumanoidSkeletonDefinition.RightUpperArm, "RightSleeveTrim", new CylinderMesh { TopRadius = 0.155f, BottomRadius = 0.155f, Height = 0.11f }, new Vector3(0, -0.38f, 0), sleeveTrim);
+        AddDetail(HumanoidSkeletonDefinition.Hips, "Belt", new BoxMesh { Size = new Vector3(0.7f, 0.1f, 0.45f) }, new Vector3(0, 0.12f, 0), secondary);
+        AddDetail(HumanoidSkeletonDefinition.Hips, "LeftFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(-0.42f, -0.08f, 0), flag);
+        AddDetail(HumanoidSkeletonDefinition.Hips, "RightFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(0.42f, -0.08f, 0), flag);
 
         AddHair(appearance.HairStyle, hair);
         AddAccessories(appearance.Accessories, secondary);
@@ -79,6 +70,30 @@ public partial class HumanoidRig : Node3D
     }
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _animator.SetState(state, restart);
+
+    public Transform3D BoneGlobalPose(string boneName)
+    {
+        var index = _skeleton.FindBone(boneName);
+        if (index < 0)
+            throw new ArgumentException($"Unknown humanoid bone {boneName}.", nameof(boneName));
+        return _skeleton.GetBoneGlobalPose(index);
+    }
+
+    public Quaternion BonePoseRotation(string boneName)
+    {
+        var index = _skeleton.FindBone(boneName);
+        if (index < 0)
+            throw new ArgumentException($"Unknown humanoid bone {boneName}.", nameof(boneName));
+        return _skeleton.GetBonePoseRotation(index);
+    }
+
+    public Vector3 BonePoseScale(string boneName)
+    {
+        var index = _skeleton.FindBone(boneName);
+        if (index < 0)
+            throw new ArgumentException($"Unknown humanoid bone {boneName}.", nameof(boneName));
+        return _skeleton.GetBonePoseScale(index);
+    }
 
     private void BuildSkeleton()
     {
@@ -93,33 +108,69 @@ public partial class HumanoidRig : Node3D
             if (bone.Parent is not null)
                 _skeleton.SetBoneParent(index, indices[bone.Parent]);
             _skeleton.SetBoneRest(index, new Transform3D(Basis.Identity, bone.RestPosition));
+            _skeleton.ResetBonePose(index);
 
-            var attachment = new BoneAttachment3D
-            {
-                Name = $"{bone.Name}Attachment",
-                BoneName = bone.Name
-            };
+            var attachment = new BoneAttachment3D { Name = $"{bone.Name}Attachment" };
             _skeleton.AddChild(attachment);
+            attachment.BoneIdx = index;
+            attachment.OverridePose = false;
             _attachments[bone.Name] = attachment;
         }
 
-        _eyeAnchor = new Node3D
-        {
-            Name = "EyeAnchor",
-            Position = new Vector3(0, 0.19f, -0.29f)
-        };
+        _eyeAnchor = new Node3D { Name = "EyeAnchor", Position = new Vector3(0, 0.19f, -0.29f) };
         _attachments[HumanoidSkeletonDefinition.Head].AddChild(_eyeAnchor);
 
-        _catchAnchor = new Node3D
-        {
-            Name = "CatchAnchor",
-            Position = new Vector3(0, -0.05f, -0.12f)
-        };
+        _catchAnchor = new Node3D { Name = "CatchAnchor", Position = new Vector3(0, -0.05f, -0.12f) };
         _attachments[HumanoidSkeletonDefinition.RightHand].AddChild(_catchAnchor);
     }
 
-    private void AddLimb(string boneName, string meshName, float radius, float height, Material material) =>
-        AddMesh(boneName, meshName, new CapsuleMesh { Radius = radius, Height = height }, new Vector3(0, -height * 0.48f, 0), material);
+    private void BuildSkinnedBody()
+    {
+        _bodyMesh = new MeshInstance3D
+        {
+            Name = "SkinnedBody",
+            Mesh = HumanoidSkinnedMesh.SharedMesh,
+            Skin = HumanoidSkinnedMesh.SharedSkin
+        };
+        AddChild(_bodyMesh);
+        _bodyMesh.Skeleton = _bodyMesh.GetPathTo(_skeleton);
+    }
+
+    private void ApplyProportions(PlayerAppearance appearance)
+    {
+        Scale = new Vector3(1, appearance.HeightMeters / 1.8f, 1);
+        var build = appearance.BodyBuild switch
+        {
+            BodyBuild.Slim => 0.86f,
+            BodyBuild.Average => 0.96f,
+            BodyBuild.Heavy => 1.18f,
+            _ => 1.04f
+        };
+
+        foreach (var bone in HumanoidSkeletonDefinition.Bones)
+        {
+            var restPosition = bone.RestPosition;
+            if (bone.Name == HumanoidSkeletonDefinition.Hips)
+                restPosition.Y *= appearance.LegLength;
+            if (bone.Name is HumanoidSkeletonDefinition.LeftLowerLeg or HumanoidSkeletonDefinition.RightLowerLeg or HumanoidSkeletonDefinition.LeftFoot or HumanoidSkeletonDefinition.RightFoot)
+                restPosition.Y *= appearance.LegLength;
+            if (bone.Name is HumanoidSkeletonDefinition.LeftLowerArm or HumanoidSkeletonDefinition.RightLowerArm or HumanoidSkeletonDefinition.LeftHand or HumanoidSkeletonDefinition.RightHand)
+                restPosition.Y *= appearance.ArmLength;
+            if (bone.Name is HumanoidSkeletonDefinition.LeftUpperArm or HumanoidSkeletonDefinition.RightUpperArm)
+                restPosition.X *= appearance.ShoulderWidth / appearance.ChestWidth;
+
+            var index = _skeleton.FindBone(bone.Name);
+            _skeleton.SetBoneRest(index, new Transform3D(Basis.Identity, restPosition));
+            _skeleton.ResetBonePose(index);
+        }
+
+        SetBoneScale(HumanoidSkeletonDefinition.Hips, new Vector3(build * appearance.HipWidth, 1, build));
+        SetBoneScale(HumanoidSkeletonDefinition.Spine, new Vector3(appearance.WaistWidth / appearance.HipWidth, 1, 1));
+        SetBoneScale(HumanoidSkeletonDefinition.Chest, new Vector3(appearance.ChestWidth / appearance.WaistWidth, 1, 1));
+    }
+
+    private void SetBoneScale(string boneName, Vector3 scale) =>
+        _skeleton.SetBonePoseScale(_skeleton.FindBone(boneName), scale);
 
     private void AddHair(HairStyle style, Material material)
     {
@@ -128,21 +179,21 @@ public partial class HumanoidRig : Node3D
             case HairStyle.None:
                 return;
             case HairStyle.Short:
-                AddMesh(HumanoidSkeletonDefinition.Head, "ShortHair", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, 0.3f, 0.02f), material, new Vector3(1.03f, 0.48f, 1.03f));
+                AddDetail(HumanoidSkeletonDefinition.Head, "ShortHair", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, 0.3f, 0.02f), material, new Vector3(1.03f, 0.48f, 1.03f));
                 break;
             case HairStyle.Curly:
                 for (var index = 0; index < 6; index++)
                 {
                     var angle = Mathf.Tau * index / 6f;
-                    AddMesh(HumanoidSkeletonDefinition.Head, $"Curl{index}", new SphereMesh { Radius = 0.13f, Height = 0.26f }, new Vector3(Mathf.Cos(angle) * 0.2f, 0.36f, Mathf.Sin(angle) * 0.18f), material);
+                    AddDetail(HumanoidSkeletonDefinition.Head, $"Curl{index}", new SphereMesh { Radius = 0.13f, Height = 0.26f }, new Vector3(Mathf.Cos(angle) * 0.2f, 0.36f, Mathf.Sin(angle) * 0.18f), material);
                 }
                 break;
             case HairStyle.Mohawk:
-                AddMesh(HumanoidSkeletonDefinition.Head, "Mohawk", new BoxMesh { Size = new Vector3(0.14f, 0.35f, 0.65f) }, new Vector3(0, 0.42f, 0), material);
+                AddDetail(HumanoidSkeletonDefinition.Head, "Mohawk", new BoxMesh { Size = new Vector3(0.14f, 0.35f, 0.65f) }, new Vector3(0, 0.42f, 0), material);
                 break;
             case HairStyle.Bun:
-                AddMesh(HumanoidSkeletonDefinition.Head, "HairCap", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, 0.29f, 0.04f), material, new Vector3(1.02f, 0.5f, 1.02f));
-                AddMesh(HumanoidSkeletonDefinition.Head, "Bun", new SphereMesh { Radius = 0.19f, Height = 0.38f }, new Vector3(0, 0.3f, 0.34f), material);
+                AddDetail(HumanoidSkeletonDefinition.Head, "HairCap", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, 0.29f, 0.04f), material, new Vector3(1.02f, 0.5f, 1.02f));
+                AddDetail(HumanoidSkeletonDefinition.Head, "Bun", new SphereMesh { Radius = 0.19f, Height = 0.38f }, new Vector3(0, 0.3f, 0.34f), material);
                 break;
         }
     }
@@ -150,28 +201,28 @@ public partial class HumanoidRig : Node3D
     private void AddAccessories(PlayerAccessories accessories, Material secondary)
     {
         if (accessories.HasFlag(PlayerAccessories.Headband))
-            AddMesh(HumanoidSkeletonDefinition.Head, "Headband", new CylinderMesh { TopRadius = 0.34f, BottomRadius = 0.34f, Height = 0.09f }, new Vector3(0, 0.17f, 0), secondary);
+            AddDetail(HumanoidSkeletonDefinition.Head, "Headband", new CylinderMesh { TopRadius = 0.34f, BottomRadius = 0.34f, Height = 0.09f }, new Vector3(0, 0.17f, 0), secondary);
         if (accessories.HasFlag(PlayerAccessories.Wristbands))
         {
-            AddMesh(HumanoidSkeletonDefinition.LeftLowerArm, "LeftWristband", new CylinderMesh { TopRadius = 0.13f, BottomRadius = 0.13f, Height = 0.1f }, new Vector3(0, -0.34f, 0), secondary);
-            AddMesh(HumanoidSkeletonDefinition.RightLowerArm, "RightWristband", new CylinderMesh { TopRadius = 0.13f, BottomRadius = 0.13f, Height = 0.1f }, new Vector3(0, -0.34f, 0), secondary);
+            AddDetail(HumanoidSkeletonDefinition.LeftLowerArm, "LeftWristband", new CylinderMesh { TopRadius = 0.13f, BottomRadius = 0.13f, Height = 0.1f }, new Vector3(0, -0.34f, 0), secondary);
+            AddDetail(HumanoidSkeletonDefinition.RightLowerArm, "RightWristband", new CylinderMesh { TopRadius = 0.13f, BottomRadius = 0.13f, Height = 0.1f }, new Vector3(0, -0.34f, 0), secondary);
         }
         if (accessories.HasFlag(PlayerAccessories.Visor))
-            AddMesh(HumanoidSkeletonDefinition.Head, "Visor", new BoxMesh { Size = new Vector3(0.48f, 0.16f, 0.055f) }, new Vector3(0, 0.16f, -0.29f), CreateMaterial(new Color(0.2f, 0.7f, 0.95f, 0.72f), true));
+            AddDetail(HumanoidSkeletonDefinition.Head, "Visor", new BoxMesh { Size = new Vector3(0.48f, 0.16f, 0.055f) }, new Vector3(0, 0.16f, -0.29f), CreateMaterial(new Color(0.2f, 0.7f, 0.95f, 0.72f), true));
         if (accessories.HasFlag(PlayerAccessories.ArmSleeves))
         {
-            AddLimb(HumanoidSkeletonDefinition.LeftLowerArm, "LeftArmSleeve", 0.125f, 0.32f, secondary);
-            AddLimb(HumanoidSkeletonDefinition.RightLowerArm, "RightArmSleeve", 0.125f, 0.32f, secondary);
+            AddDetail(HumanoidSkeletonDefinition.LeftLowerArm, "LeftArmSleeve", new CapsuleMesh { Radius = 0.125f, Height = 0.32f }, new Vector3(0, -0.16f, 0), secondary);
+            AddDetail(HumanoidSkeletonDefinition.RightLowerArm, "RightArmSleeve", new CapsuleMesh { Radius = 0.125f, Height = 0.32f }, new Vector3(0, -0.16f, 0), secondary);
         }
     }
 
     private void AddUniformLabels(Player player, UniformDefinition uniform)
     {
-        AddLabel("JerseyNumber", player.JerseyNumber.ToString(), new Vector3(0, 0, -0.39f), 44, uniform.NumberColor, uniform.NumberOutlineColor, 7);
-        AddLabel("Wordmark", uniform.TeamWordmark, new Vector3(0, 0.2f, -0.39f), 19, uniform.NumberColor);
+        AddLabel("JerseyNumber", player.JerseyNumber.ToString(), new Vector3(0, 0, -0.31f), 44, uniform.NumberColor, uniform.NumberOutlineColor, 7);
+        AddLabel("Wordmark", uniform.TeamWordmark, new Vector3(0, 0.2f, -0.31f), 19, uniform.NumberColor);
         if (uniform.ShowPlayerNameOnBack)
         {
-            var label = AddLabel("PlayerName", player.Name.ToUpperInvariant(), new Vector3(0, 0.2f, 0.39f), 16, uniform.NumberColor);
+            var label = AddLabel("PlayerName", player.Name.ToUpperInvariant(), new Vector3(0, 0.2f, 0.31f), 16, uniform.NumberColor);
             label.RotationDegrees = new Vector3(0, 180, 0);
             label.Billboard = BaseMaterial3D.BillboardModeEnum.Disabled;
         }
@@ -191,11 +242,11 @@ public partial class HumanoidRig : Node3D
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled
         };
         _attachments[HumanoidSkeletonDefinition.Chest].AddChild(label);
-        _generatedVisuals.Add(label);
+        _generatedDetails.Add(label);
         return label;
     }
 
-    private void AddMesh(string boneName, string nodeName, Mesh mesh, Vector3 position, Material material, Vector3? scale = null)
+    private void AddDetail(string boneName, string nodeName, Mesh mesh, Vector3 position, Material material, Vector3? scale = null)
     {
         var instance = new MeshInstance3D
         {
@@ -206,25 +257,18 @@ public partial class HumanoidRig : Node3D
             MaterialOverride = material
         };
         _attachments[boneName].AddChild(instance);
-        _generatedVisuals.Add(instance);
+        _generatedDetails.Add(instance);
     }
 
-    private void ClearGeneratedVisuals()
+    private void ClearGeneratedDetails()
     {
-        foreach (var visual in _generatedVisuals)
+        foreach (var detail in _generatedDetails)
         {
-            visual.GetParent()?.RemoveChild(visual);
-            visual.QueueFree();
+            detail.GetParent()?.RemoveChild(detail);
+            detail.QueueFree();
         }
-        _generatedVisuals.Clear();
+        _generatedDetails.Clear();
     }
-
-    private static float BodyBuildScale(BodyBuild build) => build switch
-    {
-        BodyBuild.Slim => 0.82f,
-        BodyBuild.Stocky => 1.2f,
-        _ => 1f
-    };
 
     private static StandardMaterial3D CreateMaterial(Color color, bool transparent = false) => new()
     {

@@ -80,6 +80,26 @@ public partial class Main : Node3D
         _playerStudio.StatusChanged += message => _gameDirector.SetStatus(message);
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
+
+        if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
+            CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunHumanoidValidation()
+    {
+        var validator = new HumanoidFoundationValidator { Name = "HumanoidFoundationValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Humanoid foundation validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private void SpawnTeam(Team team, float rotationY)

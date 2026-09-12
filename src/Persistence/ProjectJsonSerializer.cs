@@ -173,6 +173,12 @@ public sealed class ProjectJsonSerializer
         public Guid PlayerId { get; set; }
         public float HeightMeters { get; set; }
         public BodyBuild BodyBuild { get; set; }
+        public float ShoulderWidth { get; set; }
+        public float ChestWidth { get; set; }
+        public float WaistWidth { get; set; }
+        public float HipWidth { get; set; }
+        public float ArmLength { get; set; }
+        public float LegLength { get; set; }
         public AppearanceColor SkinTone { get; set; }
         public HairStyle HairStyle { get; set; }
         public AppearanceColor HairColor { get; set; }
@@ -187,6 +193,12 @@ public sealed class ProjectJsonSerializer
             PlayerId = appearance.PlayerId,
             HeightMeters = appearance.HeightMeters,
             BodyBuild = appearance.BodyBuild,
+            ShoulderWidth = appearance.ShoulderWidth,
+            ChestWidth = appearance.ChestWidth,
+            WaistWidth = appearance.WaistWidth,
+            HipWidth = appearance.HipWidth,
+            ArmLength = appearance.ArmLength,
+            LegLength = appearance.LegLength,
             SkinTone = appearance.SkinTone,
             HairStyle = appearance.HairStyle,
             HairColor = appearance.HairColor,
@@ -202,6 +214,13 @@ public sealed class ProjectJsonSerializer
             var appearance = new PlayerAppearance(PlayerId, JerseyNumber);
             appearance.SetHeight(HeightMeters);
             appearance.SetBodyBuild(BodyBuild);
+            appearance.SetBodyProportions(
+                DefaultRatio(ShoulderWidth),
+                DefaultRatio(ChestWidth),
+                DefaultRatio(WaistWidth),
+                DefaultRatio(HipWidth),
+                DefaultRatio(ArmLength),
+                DefaultRatio(LegLength));
             appearance.SetSkinTone(SkinTone);
             appearance.SetHair(HairStyle, HairColor);
             appearance.SetUniformColors(PrimaryUniformColor, SecondaryUniformColor);
@@ -209,6 +228,8 @@ public sealed class ProjectJsonSerializer
             appearance.SetAccessories(Accessories);
             return appearance;
         }
+
+        private static float DefaultRatio(float ratio) => ratio == 0 ? 1f : ratio;
     }
 
     private sealed class CameraData

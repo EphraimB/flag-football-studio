@@ -23,8 +23,13 @@ prototype rather than a gameplay simulation.
   builds primitive field geometry, and `FootballView` renders the placeholder
   ball.
 - `HumanoidSkeletonDefinition` is the single shared 18-bone hierarchy used by
-  every Gold and Navy player. `HumanoidRig` procedurally assembles placeholder
-  meshes on bone attachments and exposes stable eye and catch transforms.
+  every Gold and Navy player. `HumanoidSkinnedMesh` builds one reusable indexed
+  `ArrayMesh` and one bind-pose `Skin`; every player instance shares that mesh,
+  topology, vertex weights, and surface layout.
+- `HumanoidRig` connects the shared mesh to its skeleton instance, assigns
+  per-player materials, applies body proportions through bone rest/pose
+  transforms, and exposes stable eye and catch transforms. Hair, uniform trim,
+  flags, labels, and accessories remain lightweight bone-attached details.
 - `HumanoidAnimator` samples idle, jog, sprint, turn, throw, catch, and
   flag-pull poses, blending between states before applying them to the shared
   skeleton. It is presentation-only and does not add animation state to player
@@ -51,13 +56,14 @@ prototype rather than a gameplay simulation.
 - `CameraDirectorPanel` edits camera data. `CameraDirectorController` is the
   presentation adapter that positions the Godot `Camera3D`, attaches Player POV
   views, and applies timed cuts during playback.
-- `PlayerAppearance` is a Godot-independent per-roster-player model for body,
-  skin, hair, and optional accessories. Jersey numbers are authoritative on the
-  roster `Player`; team-wide styling is authoritative on `UniformDefinition`.
+- `PlayerAppearance` is a Godot-independent per-roster-player model for height,
+  build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
+  optional accessories. Jersey numbers are authoritative on the roster
+  `Player`; team-wide styling is authoritative on `UniformDefinition`.
   `GameProject` owns and persists the appearance collection.
 - `PlayerStudioPanel` edits appearance data, while `PlayerPawn` and
-  `HumanoidRig` translate it into live bone-attached primitive geometry and
-  materials. No rendering types enter the appearance model.
+  `HumanoidRig` translate it into live skeletal deformation and materials. No
+  rendering types enter the appearance model.
 - `UniformDefinition` is a Godot-independent, team-associated description of
   uniform colors, trim, typography options, and home/away designation.
   `GameProject` owns each team's saved uniform library and active selection,
@@ -131,11 +137,13 @@ the generated presentation.
 ### Player Studio controls
 
 - Choose any Gold or Navy roster member from the player list.
-- Edit height, body build, skin tone, hair style and color, jersey number,
-  and the active team's primary, secondary, and flag colors. Jersey-number
-  changes update the roster; team color changes update the active uniform.
+- Edit height; slim, average, athletic, or heavy build; shoulder, chest, waist,
+  and hip width; arm and leg length; skin tone; hair style and color; jersey
+  number; and the active team's primary, secondary, and flag colors.
+  Jersey-number changes update the roster; team color changes update the active
+  uniform.
 - Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
-- Changes rebuild the selected primitive player immediately in the 3D preview.
+- Changes deform the selected skinned player immediately in the 3D preview.
 
 All player appearances are included in **Save Project** and restored by
 **Load Project**. Older project files without appearance data receive default
@@ -159,7 +167,22 @@ All saved uniforms and each team's active selection are included in **Save
 Project** and restored by **Load Project**. Older project files without uniform
 data receive default Gold and Navy home/away uniforms when loaded.
 
-The prototype intentionally uses only Godot primitive geometry attached to a
-standardized humanoid skeleton. Realistic faces, advanced facial rigging,
-cloth simulation, motion capture, AI animation, dialogue, crowds, 360 output,
-and production rendering remain future work.
+### Humanoid validation
+
+After building, run the focused headless validation with:
+
+```powershell
+godot --headless --path . -- --validate-humanoids
+```
+
+It validates shared mesh identity and topology, height extremes, every body
+build, opposite proportion extremes, JSON round trips, jog/sprint/throw/catch/
+flag-pull deformation, and eye/hand anchors after morphing.
+
+The current procedural body is deliberately low-poly. It is one skinned mesh
+resource with fixed weighted topology, but its material regions are separate,
+non-welded surfaces and visible joint or material seams are expected. It does
+not yet provide a production-smooth body, facial edge loops, facial morphs, or
+cloth deformation. Realistic faces, facial rigging, cloth simulation, motion
+capture, AI mesh generation, dialogue, crowds, 360 output, and production
+rendering remain future work.
