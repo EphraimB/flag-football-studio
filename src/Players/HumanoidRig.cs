@@ -11,6 +11,7 @@ public partial class HumanoidRig : Node3D
     private readonly List<Node> _generatedDetails = [];
     private Skeleton3D _skeleton = null!;
     private MeshInstance3D _bodyMesh = null!;
+    private MeshInstance3D _faceMesh = null!;
     private HumanoidAnimator _animator = null!;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
@@ -19,6 +20,7 @@ public partial class HumanoidRig : Node3D
     public Node3D CatchAnchor => _catchAnchor;
     public HumanoidAnimationState AnimationState => _animator.State;
     public Mesh BodyMeshResource => _bodyMesh.Mesh;
+    public ArrayMesh FaceMeshResource => (ArrayMesh)_faceMesh.Mesh;
     public string TopologySignature => HumanoidSkinnedMesh.TopologySignature;
     public int SkeletonBoneCount => _skeleton.GetBoneCount();
 
@@ -64,8 +66,9 @@ public partial class HumanoidRig : Node3D
         AddDetail(HumanoidSkeletonDefinition.Hips, "LeftFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(-0.42f, -0.08f, 0), flag);
         AddDetail(HumanoidSkeletonDefinition.Hips, "RightFlag", new BoxMesh { Size = new Vector3(0.1f, 0.5f, 0.055f) }, new Vector3(0.42f, -0.08f, 0), flag);
 
-        AddHair(appearance.HairStyle, hair);
-        AddAccessories(appearance.Accessories, secondary);
+        AddFace(appearance.Face, skin, hair);
+        AddHair(appearance.HairStyle, hair, appearance.Face);
+        AddAccessories(appearance.Accessories, secondary, appearance.Face);
         AddUniformLabels(player, uniform);
     }
 
@@ -172,43 +175,59 @@ public partial class HumanoidRig : Node3D
     private void SetBoneScale(string boneName, Vector3 scale) =>
         _skeleton.SetBonePoseScale(_skeleton.FindBone(boneName), scale);
 
-    private void AddHair(HairStyle style, Material material)
+    private void AddFace(FaceAppearance face, Material skin, Material hair)
     {
+        _faceMesh = new MeshInstance3D
+        {
+            Name = "ProceduralFace",
+            Mesh = HumanoidFaceMesh.Create(face)
+        };
+        _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Skin, skin);
+        _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Eyes, CreateMaterial(new Color("242b35")));
+        _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Brows, hair);
+        _faceMesh.SetSurfaceOverrideMaterial((int)HumanoidFaceSurface.Lips, CreateMaterial(new Color("914f58")));
+        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_faceMesh);
+        _generatedDetails.Add(_faceMesh);
+    }
+
+    private void AddHair(HairStyle style, Material material, FaceAppearance face)
+    {
+        var crownY = 0.13f + 0.34f * face.HeadHeight;
         switch (style)
         {
             case HairStyle.None:
                 return;
             case HairStyle.Short:
-                AddDetail(HumanoidSkeletonDefinition.Head, "ShortHair", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, 0.3f, 0.02f), material, new Vector3(1.03f, 0.48f, 1.03f));
+                AddDetail(HumanoidSkeletonDefinition.Head, "ShortHair", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, crownY - 0.17f, 0.02f), material, new Vector3(1.03f * face.HeadWidth, 0.48f * face.HeadHeight, 1.03f));
                 break;
             case HairStyle.Curly:
                 for (var index = 0; index < 6; index++)
                 {
                     var angle = Mathf.Tau * index / 6f;
-                    AddDetail(HumanoidSkeletonDefinition.Head, $"Curl{index}", new SphereMesh { Radius = 0.13f, Height = 0.26f }, new Vector3(Mathf.Cos(angle) * 0.2f, 0.36f, Mathf.Sin(angle) * 0.18f), material);
+                    AddDetail(HumanoidSkeletonDefinition.Head, $"Curl{index}", new SphereMesh { Radius = 0.13f, Height = 0.26f }, new Vector3(Mathf.Cos(angle) * 0.2f * face.HeadWidth, crownY - 0.1f, Mathf.Sin(angle) * 0.18f), material);
                 }
                 break;
             case HairStyle.Mohawk:
-                AddDetail(HumanoidSkeletonDefinition.Head, "Mohawk", new BoxMesh { Size = new Vector3(0.14f, 0.35f, 0.65f) }, new Vector3(0, 0.42f, 0), material);
+                AddDetail(HumanoidSkeletonDefinition.Head, "Mohawk", new BoxMesh { Size = new Vector3(0.14f, 0.35f, 0.65f) }, new Vector3(0, crownY + 0.02f, 0), material);
                 break;
             case HairStyle.Bun:
-                AddDetail(HumanoidSkeletonDefinition.Head, "HairCap", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, 0.29f, 0.04f), material, new Vector3(1.02f, 0.5f, 1.02f));
-                AddDetail(HumanoidSkeletonDefinition.Head, "Bun", new SphereMesh { Radius = 0.19f, Height = 0.38f }, new Vector3(0, 0.3f, 0.34f), material);
+                AddDetail(HumanoidSkeletonDefinition.Head, "HairCap", new SphereMesh { Radius = 0.33f, Height = 0.66f }, new Vector3(0, crownY - 0.18f, 0.04f), material, new Vector3(1.02f * face.HeadWidth, 0.5f * face.HeadHeight, 1.02f));
+                AddDetail(HumanoidSkeletonDefinition.Head, "Bun", new SphereMesh { Radius = 0.19f, Height = 0.38f }, new Vector3(0, crownY - 0.17f, 0.34f), material);
                 break;
         }
     }
 
-    private void AddAccessories(PlayerAccessories accessories, Material secondary)
+    private void AddAccessories(PlayerAccessories accessories, Material secondary, FaceAppearance face)
     {
         if (accessories.HasFlag(PlayerAccessories.Headband))
-            AddDetail(HumanoidSkeletonDefinition.Head, "Headband", new CylinderMesh { TopRadius = 0.34f, BottomRadius = 0.34f, Height = 0.09f }, new Vector3(0, 0.17f, 0), secondary);
+            AddDetail(HumanoidSkeletonDefinition.Head, "Headband", new CylinderMesh { TopRadius = 0.34f * face.HeadWidth, BottomRadius = 0.34f * face.HeadWidth, Height = 0.09f }, new Vector3(0, 0.17f, 0), secondary);
         if (accessories.HasFlag(PlayerAccessories.Wristbands))
         {
             AddDetail(HumanoidSkeletonDefinition.LeftLowerArm, "LeftWristband", new CylinderMesh { TopRadius = 0.13f, BottomRadius = 0.13f, Height = 0.1f }, new Vector3(0, -0.34f, 0), secondary);
             AddDetail(HumanoidSkeletonDefinition.RightLowerArm, "RightWristband", new CylinderMesh { TopRadius = 0.13f, BottomRadius = 0.13f, Height = 0.1f }, new Vector3(0, -0.34f, 0), secondary);
         }
         if (accessories.HasFlag(PlayerAccessories.Visor))
-            AddDetail(HumanoidSkeletonDefinition.Head, "Visor", new BoxMesh { Size = new Vector3(0.48f, 0.16f, 0.055f) }, new Vector3(0, 0.16f, -0.29f), CreateMaterial(new Color(0.2f, 0.7f, 0.95f, 0.72f), true));
+            AddDetail(HumanoidSkeletonDefinition.Head, "Visor", new BoxMesh { Size = new Vector3(0.48f * face.HeadWidth, 0.16f, 0.055f) }, new Vector3(0, 0.16f, -0.31f), CreateMaterial(new Color(0.2f, 0.7f, 0.95f, 0.72f), true));
         if (accessories.HasFlag(PlayerAccessories.ArmSleeves))
         {
             AddDetail(HumanoidSkeletonDefinition.LeftLowerArm, "LeftArmSleeve", new CapsuleMesh { Radius = 0.125f, Height = 0.32f }, new Vector3(0, -0.16f, 0), secondary);

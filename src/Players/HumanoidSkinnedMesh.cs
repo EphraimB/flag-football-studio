@@ -50,7 +50,6 @@ public static class HumanoidSkinnedMesh
 
     private static void BuildSkinSurface(SurfaceGeometry surface)
     {
-        surface.AddSphere(new Vector3(0, 2.13f, 0), new Vector3(0.32f, 0.34f, 0.31f), Bone(HumanoidSkeletonDefinition.Head));
         surface.AddTube(new Vector3(0, 1.82f, 0), new Vector3(0, 2.01f, 0), new Vector2(0.15f, 0.14f), Bone(HumanoidSkeletonDefinition.Neck), Bone(HumanoidSkeletonDefinition.Head));
 
         AddMirroredArms(surface, new Vector3(-0.48f, 1.22f, 0), new Vector3(-0.48f, 0.82f, 0), 0.115f,

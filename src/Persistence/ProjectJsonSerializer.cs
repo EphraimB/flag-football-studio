@@ -187,6 +187,7 @@ public sealed class ProjectJsonSerializer
         public AppearanceColor SecondaryUniformColor { get; set; }
         public AppearanceColor FlagColor { get; set; }
         public PlayerAccessories Accessories { get; set; }
+        public FaceAppearanceData? Face { get; set; }
 
         public static PlayerAppearanceData FromDomain(PlayerAppearance appearance) => new()
         {
@@ -206,7 +207,8 @@ public sealed class ProjectJsonSerializer
             PrimaryUniformColor = appearance.PrimaryUniformColor,
             SecondaryUniformColor = appearance.SecondaryUniformColor,
             FlagColor = appearance.FlagColor,
-            Accessories = appearance.Accessories
+            Accessories = appearance.Accessories,
+            Face = FaceAppearanceData.FromDomain(appearance.Face)
         };
 
         public PlayerAppearance ToDomain()
@@ -226,10 +228,81 @@ public sealed class ProjectJsonSerializer
             appearance.SetUniformColors(PrimaryUniformColor, SecondaryUniformColor);
             appearance.SetFlagColor(FlagColor);
             appearance.SetAccessories(Accessories);
+            Face?.ApplyTo(appearance.Face);
             return appearance;
         }
 
         private static float DefaultRatio(float ratio) => ratio == 0 ? 1f : ratio;
+    }
+
+    private sealed class FaceAppearanceData
+    {
+        public float HeadWidth { get; set; }
+        public float HeadHeight { get; set; }
+        public float JawWidth { get; set; }
+        public float JawHeight { get; set; }
+        public float ChinWidth { get; set; }
+        public float ChinProjection { get; set; }
+        public float CheekboneWidth { get; set; }
+        public float CheekFullness { get; set; }
+        public float ForeheadHeight { get; set; }
+        public float EyeSpacing { get; set; }
+        public float EyeSize { get; set; }
+        public float EyeVerticalPosition { get; set; }
+        public float EyebrowHeight { get; set; }
+        public float NoseWidth { get; set; }
+        public float NoseLength { get; set; }
+        public float NoseProjection { get; set; }
+        public float MouthWidth { get; set; }
+        public float LipFullness { get; set; }
+        public float EarSize { get; set; }
+        public float EarPosition { get; set; }
+
+        public static FaceAppearanceData FromDomain(FaceAppearance face) => new()
+        {
+            HeadWidth = face.HeadWidth,
+            HeadHeight = face.HeadHeight,
+            JawWidth = face.JawWidth,
+            JawHeight = face.JawHeight,
+            ChinWidth = face.ChinWidth,
+            ChinProjection = face.ChinProjection,
+            CheekboneWidth = face.CheekboneWidth,
+            CheekFullness = face.CheekFullness,
+            ForeheadHeight = face.ForeheadHeight,
+            EyeSpacing = face.EyeSpacing,
+            EyeSize = face.EyeSize,
+            EyeVerticalPosition = face.EyeVerticalPosition,
+            EyebrowHeight = face.EyebrowHeight,
+            NoseWidth = face.NoseWidth,
+            NoseLength = face.NoseLength,
+            NoseProjection = face.NoseProjection,
+            MouthWidth = face.MouthWidth,
+            LipFullness = face.LipFullness,
+            EarSize = face.EarSize,
+            EarPosition = face.EarPosition
+        };
+
+        public void ApplyTo(FaceAppearance face) => face.SetParameters(
+            HeadWidth,
+            HeadHeight,
+            JawWidth,
+            JawHeight,
+            ChinWidth,
+            ChinProjection,
+            CheekboneWidth,
+            CheekFullness,
+            ForeheadHeight,
+            EyeSpacing,
+            EyeSize,
+            EyeVerticalPosition,
+            EyebrowHeight,
+            NoseWidth,
+            NoseLength,
+            NoseProjection,
+            MouthWidth,
+            LipFullness,
+            EarSize,
+            EarPosition);
     }
 
     private sealed class CameraData

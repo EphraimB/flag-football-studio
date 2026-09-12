@@ -55,6 +55,7 @@ public sealed class PlayerAppearance
         PrimaryUniformColor = new AppearanceColor(216, 169, 27);
         SecondaryUniformColor = new AppearanceColor(245, 245, 240);
         FlagColor = new AppearanceColor(255, 79, 100);
+        Face = new FaceAppearance();
     }
 
     public Guid PlayerId { get; }
@@ -74,6 +75,7 @@ public sealed class PlayerAppearance
     public AppearanceColor SecondaryUniformColor { get; private set; }
     public AppearanceColor FlagColor { get; private set; }
     public PlayerAccessories Accessories { get; private set; }
+    public FaceAppearance Face { get; }
 
     public void SetHeight(float heightMeters)
     {

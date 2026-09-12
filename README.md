@@ -7,7 +7,8 @@ The director prototype demonstrates the core architecture with a primitive 3D
 field, two five-player teams, a top-down play editor, persistent play and camera
 libraries, a game-state scoreboard, configurable camera previews, editable
 humanoid player appearances, reusable team uniform libraries, and deterministic
-tween-based playback with skeletal animation states. It is an architectural
+tween-based playback with skeletal animation states. Player appearances now
+include deterministic low-poly face customization. It is an architectural
 prototype rather than a gameplay simulation.
 
 ## Repository layout
@@ -28,8 +29,10 @@ prototype rather than a gameplay simulation.
   topology, vertex weights, and surface layout.
 - `HumanoidRig` connects the shared mesh to its skeleton instance, assigns
   per-player materials, applies body proportions through bone rest/pose
-  transforms, and exposes stable eye and catch transforms. Hair, uniform trim,
-  flags, labels, and accessories remain lightweight bone-attached details.
+  transforms, and exposes stable eye and catch transforms. `HumanoidFaceMesh`
+  builds a per-player face from one fixed indexed topology and attaches it to
+  the shared head bone. Hair, uniform trim, flags, labels, and accessories
+  remain lightweight bone-attached details.
 - `HumanoidAnimator` samples idle, jog, sprint, turn, throw, catch, and
   flag-pull poses, blending between states before applying them to the shared
   skeleton. It is presentation-only and does not add animation state to player
@@ -58,9 +61,11 @@ prototype rather than a gameplay simulation.
   views, and applies timed cuts during playback.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for height,
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
-  optional accessories. Jersey numbers are authoritative on the roster
-  `Player`; team-wide styling is authoritative on `UniformDefinition`.
-  `GameProject` owns and persists the appearance collection.
+  optional accessories. Its Godot-independent `FaceAppearance` value stores
+  clamped face proportions; it contains no meshes, nodes, or engine vectors.
+  Jersey numbers are authoritative on the roster `Player`; team-wide styling
+  is authoritative on `UniformDefinition`. `GameProject` owns and persists the
+  appearance collection.
 - `PlayerStudioPanel` edits appearance data, while `PlayerPawn` and
   `HumanoidRig` translate it into live skeletal deformation and materials. No
   rendering types enter the appearance model.
@@ -137,13 +142,19 @@ the generated presentation.
 ### Player Studio controls
 
 - Choose any Gold or Navy roster member from the player list.
-- Edit height; slim, average, athletic, or heavy build; shoulder, chest, waist,
-  and hip width; arm and leg length; skin tone; hair style and color; jersey
-  number; and the active team's primary, secondary, and flag colors.
+- Use the **Body** tab to edit height; slim, average, athletic, or heavy build;
+  shoulder, chest, waist, and hip width; arm and leg length; skin tone; hair
+  style and color; jersey number; and the active team's primary, secondary,
+  and flag colors.
   Jersey-number changes update the roster; team color changes update the active
   uniform.
+- Use the dedicated **Face** tab to edit head width/height, jaw width/height,
+  chin width/projection, cheekbone width/fullness, forehead height, eye
+  spacing/size/vertical position, eyebrow height, nose width/length/projection,
+  mouth width, lip fullness, and ear size/position.
 - Toggle headband, wristbands, visor, and arm-sleeve accessories independently.
-- Changes deform the selected skinned player immediately in the 3D preview.
+- Body and face changes rebuild the selected player's presentation immediately
+  in the 3D preview while preserving its skeleton and stable camera anchors.
 
 All player appearances are included in **Save Project** and restored by
 **Load Project**. Older project files without appearance data receive default
@@ -179,10 +190,37 @@ It validates shared mesh identity and topology, height extremes, every body
 build, opposite proportion extremes, JSON round trips, jog/sprint/throw/catch/
 flag-pull deformation, and eye/hand anchors after morphing.
 
+### Face validation and parameter safety
+
+After building, run the focused facial validation with:
+
+```powershell
+godot --headless --path . -- --validate-faces
+```
+
+All dimension and fullness controls use a safe `0.75` to `1.25` scale range.
+Chin projection, eye vertical position, nose projection, and ear position use
+an offset range of `-0.20` to `0.20`. The domain model also constrains risky
+combinations: jaw width is at most head width plus `0.12`; chin width is at
+most jaw width plus `0.03`; cheekbone width and eye spacing are bounded by head
+width; eye size is bounded by eye spacing; nose width is bounded by eye
+spacing; and mouth width is bounded by jaw width. Player Studio writes the
+clamped values back into its controls so the persisted value is always the one
+shown.
+
+The face validator checks both ends of every range, conflicting combined
+extremes, fixed vertex/index topology, non-empty finite geometry, all 20 JSON
+fields, reuse of the skinned body resource, animation compatibility, and stable
+eye/POV and hand anchors.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
-not yet provide a production-smooth body, facial edge loops, facial morphs, or
-cloth deformation. Realistic faces, facial rigging, cloth simulation, motion
-capture, AI mesh generation, dialogue, crowds, 360 output, and production
-rendering remain future work.
+not yet provide a production-smooth body or cloth deformation. The face is a
+rigid head-bone-attached, fixed-topology low-poly mesh with separately generated
+eyes, brows, lips, nose, and ears. It has no facial skinning, expressions,
+facial edge-loop rig, eyelids, realistic eyeballs, teeth, tongue, lip sync, or
+photorealistic skin shader. Extreme settings are safe and deterministic but can
+still look stylized, angular, or show seams where feature surfaces meet. AI
+face generation, photo reconstruction, cloth simulation, dialogue, crowds,
+360 output, and production rendering remain future work.

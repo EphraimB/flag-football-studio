@@ -8,8 +8,17 @@ namespace FlagFootballStudio.Presentation;
 
 public partial class PlayerStudioPanel : PanelContainer
 {
+    private enum FaceControl
+    {
+        HeadWidth, HeadHeight, JawWidth, JawHeight, ChinWidth, ChinProjection,
+        CheekboneWidth, CheekFullness, ForeheadHeight, EyeSpacing, EyeSize,
+        EyeVerticalPosition, EyebrowHeight, NoseWidth, NoseLength, NoseProjection,
+        MouthWidth, LipFullness, EarSize, EarPosition
+    }
+
     private readonly List<Guid> _playerIds = [];
     private readonly Dictionary<PlayerAccessories, CheckButton> _accessoryChecks = [];
+    private readonly Dictionary<FaceControl, SpinBox> _faceControls = [];
     private GameProject _project = null!;
     private Game _game = null!;
     private Guid _selectedPlayerId;
@@ -54,6 +63,8 @@ public partial class PlayerStudioPanel : PanelContainer
             control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
         foreach (var check in _accessoryChecks.Values)
             check.Disabled = !enabled;
+        foreach (var control in _faceControls.Values)
+            control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
     }
 
     public void RefreshUniformFields()
@@ -84,12 +95,20 @@ public partial class PlayerStudioPanel : PanelContainer
         _playerOption.ItemSelected += OnPlayerSelected;
         stack.AddChild(_playerOption);
 
-        var scroll = new ScrollContainer
+        var tabs = new TabContainer
         {
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             SizeFlagsVertical = Control.SizeFlags.ExpandFill
         };
-        stack.AddChild(scroll);
+        stack.AddChild(tabs);
+
+        var scroll = new ScrollContainer
+        {
+            Name = "Body",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
 
         var editorStack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         editorStack.AddThemeConstantOverride("separation", 5);
@@ -167,6 +186,8 @@ public partial class PlayerStudioPanel : PanelContainer
         AddAccessory(accessories, "Wristbands", PlayerAccessories.Wristbands);
         AddAccessory(accessories, "Visor", PlayerAccessories.Visor);
         AddAccessory(accessories, "Sleeves", PlayerAccessories.ArmSleeves);
+
+        BuildFaceEditor(tabs);
     }
 
     private void RefreshPlayers()
@@ -211,6 +232,7 @@ public partial class PlayerStudioPanel : PanelContainer
         _flagColor.Color = ToGodot(uniform.FlagColor);
         foreach (var accessory in _accessoryChecks)
             accessory.Value.ButtonPressed = appearance.Accessories.HasFlag(accessory.Key);
+        RefreshFaceEditor(appearance.Face);
     }
 
     private void OnPlayerSelected(long index)
@@ -237,6 +259,41 @@ public partial class PlayerStudioPanel : PanelContainer
             (float)_hipWidth.Value,
             (float)_armLength.Value,
             (float)_legLength.Value));
+
+    private void OnFaceChanged(double _)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty)
+            return;
+
+        var appearance = _project.AppearanceFor(_selectedPlayerId);
+        var face = appearance.Face;
+        face.SetParameters(
+            FaceValue(FaceControl.HeadWidth),
+            FaceValue(FaceControl.HeadHeight),
+            FaceValue(FaceControl.JawWidth),
+            FaceValue(FaceControl.JawHeight),
+            FaceValue(FaceControl.ChinWidth),
+            FaceValue(FaceControl.ChinProjection),
+            FaceValue(FaceControl.CheekboneWidth),
+            FaceValue(FaceControl.CheekFullness),
+            FaceValue(FaceControl.ForeheadHeight),
+            FaceValue(FaceControl.EyeSpacing),
+            FaceValue(FaceControl.EyeSize),
+            FaceValue(FaceControl.EyeVerticalPosition),
+            FaceValue(FaceControl.EyebrowHeight),
+            FaceValue(FaceControl.NoseWidth),
+            FaceValue(FaceControl.NoseLength),
+            FaceValue(FaceControl.NoseProjection),
+            FaceValue(FaceControl.MouthWidth),
+            FaceValue(FaceControl.LipFullness),
+            FaceValue(FaceControl.EarSize),
+            FaceValue(FaceControl.EarPosition));
+
+        _refreshing = true;
+        RefreshFaceEditor(face);
+        _refreshing = false;
+        AppearanceChanged?.Invoke(_selectedPlayerId);
+    }
 
     private void OnHairStyleChanged(long index) =>
         UpdateAppearance(appearance => appearance.SetHair((HairStyle)_hairStyle.GetItemId((int)index), ToDomain(_hairColor.Color)));
@@ -328,6 +385,79 @@ public partial class PlayerStudioPanel : PanelContainer
         parent.AddChild(check);
         _accessoryChecks.Add(accessory, check);
     }
+
+    private void BuildFaceEditor(TabContainer tabs)
+    {
+        var scroll = new ScrollContainer
+        {
+            Name = "Face",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        scroll.AddChild(grid);
+
+        AddFaceField(grid, FaceControl.HeadWidth, "Head width");
+        AddFaceField(grid, FaceControl.HeadHeight, "Head height");
+        AddFaceField(grid, FaceControl.JawWidth, "Jaw width");
+        AddFaceField(grid, FaceControl.JawHeight, "Jaw height");
+        AddFaceField(grid, FaceControl.ChinWidth, "Chin width");
+        AddFaceField(grid, FaceControl.ChinProjection, "Chin projection", true);
+        AddFaceField(grid, FaceControl.CheekboneWidth, "Cheekbone width");
+        AddFaceField(grid, FaceControl.CheekFullness, "Cheek fullness");
+        AddFaceField(grid, FaceControl.ForeheadHeight, "Forehead height");
+        AddFaceField(grid, FaceControl.EyeSpacing, "Eye spacing");
+        AddFaceField(grid, FaceControl.EyeSize, "Eye size");
+        AddFaceField(grid, FaceControl.EyeVerticalPosition, "Eye vertical", true);
+        AddFaceField(grid, FaceControl.EyebrowHeight, "Eyebrow height");
+        AddFaceField(grid, FaceControl.NoseWidth, "Nose width");
+        AddFaceField(grid, FaceControl.NoseLength, "Nose length");
+        AddFaceField(grid, FaceControl.NoseProjection, "Nose projection", true);
+        AddFaceField(grid, FaceControl.MouthWidth, "Mouth width");
+        AddFaceField(grid, FaceControl.LipFullness, "Lip fullness");
+        AddFaceField(grid, FaceControl.EarSize, "Ear size");
+        AddFaceField(grid, FaceControl.EarPosition, "Ear position", true);
+    }
+
+    private void AddFaceField(GridContainer grid, FaceControl faceControl, string label, bool offset = false)
+    {
+        var editor = offset
+            ? CreateSpinBox(FaceAppearance.MinimumOffset, FaceAppearance.MaximumOffset, 0.01, " offset")
+            : CreateSpinBox(FaceAppearance.MinimumScale, FaceAppearance.MaximumScale, 0.01, "×");
+        editor.ValueChanged += OnFaceChanged;
+        _faceControls.Add(faceControl, editor);
+        AddField(grid, label, editor);
+    }
+
+    private void RefreshFaceEditor(FaceAppearance face)
+    {
+        SetFaceValue(FaceControl.HeadWidth, face.HeadWidth);
+        SetFaceValue(FaceControl.HeadHeight, face.HeadHeight);
+        SetFaceValue(FaceControl.JawWidth, face.JawWidth);
+        SetFaceValue(FaceControl.JawHeight, face.JawHeight);
+        SetFaceValue(FaceControl.ChinWidth, face.ChinWidth);
+        SetFaceValue(FaceControl.ChinProjection, face.ChinProjection);
+        SetFaceValue(FaceControl.CheekboneWidth, face.CheekboneWidth);
+        SetFaceValue(FaceControl.CheekFullness, face.CheekFullness);
+        SetFaceValue(FaceControl.ForeheadHeight, face.ForeheadHeight);
+        SetFaceValue(FaceControl.EyeSpacing, face.EyeSpacing);
+        SetFaceValue(FaceControl.EyeSize, face.EyeSize);
+        SetFaceValue(FaceControl.EyeVerticalPosition, face.EyeVerticalPosition);
+        SetFaceValue(FaceControl.EyebrowHeight, face.EyebrowHeight);
+        SetFaceValue(FaceControl.NoseWidth, face.NoseWidth);
+        SetFaceValue(FaceControl.NoseLength, face.NoseLength);
+        SetFaceValue(FaceControl.NoseProjection, face.NoseProjection);
+        SetFaceValue(FaceControl.MouthWidth, face.MouthWidth);
+        SetFaceValue(FaceControl.LipFullness, face.LipFullness);
+        SetFaceValue(FaceControl.EarSize, face.EarSize);
+        SetFaceValue(FaceControl.EarPosition, face.EarPosition);
+    }
+
+    private float FaceValue(FaceControl control) => (float)_faceControls[control].Value;
+    private void SetFaceValue(FaceControl control, float value) => _faceControls[control].Value = value;
 
     private static void AddField(GridContainer grid, string label, Control editor)
     {
