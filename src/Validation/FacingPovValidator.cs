@@ -52,7 +52,7 @@ public partial class FacingPovValidator : Node3D
         AddChild(sequence);
         sequence.Configure(play, _pawns, football, this, status, game.Gold, game.Navy);
         var playTask = sequence.RunAsync();
-        await WaitSeconds(0.72);
+        await WaitSeconds(play.SimulationSettings.PreSnapDelay + play.SimulationSettings.DefensiveReactionDelay + 0.55);
         ValidateRouteFacing(play, receiver, Pawn(play.CoverageAssignments.First().Key));
         await playTask;
 
@@ -132,15 +132,8 @@ public partial class FacingPovValidator : Node3D
         Require(receiver.FacingAlignment(receiverTarget - receiver.GlobalPosition) > 0.85f,
             "Receiver did not turn toward the route movement direction.");
 
-        var coveredPlayerId = play.CoverageAssignments[defender.Player!.Id];
-        var defenderStart = play.StartingPositions[defender.Player.Id];
-        var offenseStart = play.StartingPositions[coveredPlayerId];
-        var routeTarget = play.Routes[coveredPlayerId][0];
-        var coverageTarget = new PlayPoint(
-            routeTarget.X + (defenderStart.X - offenseStart.X) * 0.45f,
-            routeTarget.Y + (defenderStart.Y - offenseStart.Y) * 0.45f);
-        Require(defender.FacingAlignment(ToWorld(coverageTarget) - defender.GlobalPosition) > 0.85f,
-            "Defender did not turn toward the coverage movement direction.");
+        Require(defender.FacingAlignment(receiver.GlobalPosition - defender.GlobalPosition) > 0.8f,
+            "Defender did not turn toward the assigned receiver.");
     }
 
     private async Task ValidatePlayerPovAsync(

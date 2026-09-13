@@ -69,6 +69,7 @@ public sealed class ProjectJsonSerializer
         public int Down { get; set; }
         public int Distance { get; set; }
         public Guid PossessionTeamId { get; set; }
+        public string? LastPlayResult { get; set; }
         public List<PlayData> Plays { get; set; } = [];
         public List<CameraData> Cameras { get; set; } = [];
         public List<CameraCutData> CameraCuts { get; set; } = [];
@@ -91,6 +92,7 @@ public sealed class ProjectJsonSerializer
             Down = project.Down,
             Distance = project.Distance,
             PossessionTeamId = project.Possession.Id,
+            LastPlayResult = project.LastPlayResult,
             Plays = project.Plays.Select(PlayData.FromDomain).ToList(),
             Cameras = project.Cameras.Select(CameraData.FromDomain).ToList(),
             CameraCuts = project.CameraCuts.Select(CameraCutData.FromDomain).ToList(),
@@ -105,6 +107,7 @@ public sealed class ProjectJsonSerializer
         {
             var project = new GameProject(Id, Name, HomeTeam.ToDomain(), AwayTeam.ToDomain());
             project.SetGameState(HomeScore, AwayScore, Quarter, GameClockSeconds, Down, Distance, PossessionTeamId);
+            project.SetLastPlayResult(LastPlayResult ?? "No play run");
             foreach (var appearance in PlayerAppearances)
                 project.SetPlayerAppearance(appearance.ToDomain());
             if (Uniforms.Count > 0)
@@ -629,6 +632,7 @@ public sealed class ProjectJsonSerializer
         public Dictionary<Guid, Guid> CoverageAssignments { get; set; } = [];
         public Guid QuarterbackId { get; set; }
         public Guid IntendedReceiverId { get; set; }
+        public PlaySimulationSettings? SimulationSettings { get; set; }
 
         public static PlayData FromDomain(PlayDefinition play) => new()
         {
@@ -639,7 +643,8 @@ public sealed class ProjectJsonSerializer
             Routes = play.Routes.ToDictionary(entry => entry.Key, entry => entry.Value.ToList()),
             CoverageAssignments = play.CoverageAssignments.ToDictionary(entry => entry.Key, entry => entry.Value),
             QuarterbackId = play.QuarterbackId,
-            IntendedReceiverId = play.IntendedReceiverId
+            IntendedReceiverId = play.IntendedReceiverId,
+            SimulationSettings = play.SimulationSettings
         };
 
         public PlayDefinition ToDomain()
@@ -656,6 +661,8 @@ public sealed class ProjectJsonSerializer
                 play.SetQuarterback(QuarterbackId);
             if (IntendedReceiverId != Guid.Empty)
                 play.SetIntendedReceiver(IntendedReceiverId);
+            if (SimulationSettings.HasValue)
+                play.SetSimulationSettings(SimulationSettings.Value);
             return play;
         }
     }

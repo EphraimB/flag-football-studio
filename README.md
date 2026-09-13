@@ -6,11 +6,11 @@ directing, and rendering fully customizable flag football games.
 The director prototype demonstrates the core architecture with a primitive 3D
 field, two five-player teams, a top-down play editor, persistent play and camera
 libraries, a game-state scoreboard, configurable camera previews, editable
-humanoid player appearances, reusable team uniform libraries, and deterministic
-tween-based playback with skeletal animation states. Player appearances now
+humanoid player appearances, reusable team uniform libraries, and a deterministic
+fixed-step flag-football simulation with skeletal animation states. Player appearances now
 include deterministic low-poly face customization, blended expression previews,
 blinking, gaze control, and reusable procedural hairstyles. It is an
-architectural prototype rather than a gameplay simulation. The presentation
+architectural prototype rather than a physics-driven competitive game. The presentation
 layer also includes deterministic mouth shapes intended as a future speech-
 animation foundation. Dialogue Director now supports portable recorded voice
 clips, per-player voice metadata, timestamped manual visemes, and procedural 3D
@@ -63,15 +63,22 @@ timings when available.
   flag-pull poses, blending between states before applying them to the shared
   skeleton. It is presentation-only and does not add animation state to player
   identity or persisted project data.
-- `PlaySequenceController` owns deterministic tween-based choreography and
-  selects humanoid animation states for each action. `PlayDirectionResolver`
+- `FootballPlaySimulator` is a Godot-independent fixed-step simulation service.
+  It converts a `PlayDefinition` into player/ball frames, assignments, route
+  progress, possession state, discrete football events, and a final
+  `PlayOutcome`. Timing, acceleration, pursuit, pass arcs, and results are
+  deterministic.
+- `PlaySequenceController` consumes that simulation timeline, moves Godot player
+  and football nodes, attaches caught balls to existing hand anchors, and maps
+  simulation motion states onto humanoid animation states. `PlayDirectionResolver`
   derives the offense's attacking field direction from possession and formation
   separation; `FormationFacing` converts that convention to Godot's local `-Z`
   character-forward axis. The main studio scene composes models, views, camera,
   lighting, and UI.
 - `PlayDefinition` is the Godot-independent source of truth for formation
   positions, waypoint routes, defensive assignments, quarterback selection,
-  and the intended receiver. Both the 2D editor and 3D playback consume it.
+  intended receiver, snap/throw/reaction timing, pass arc, and authored outcome.
+  Both the 2D editor and simulation consume it.
 - `PlayDirectorPanel` translates mouse interaction and top-down field
   coordinates into domain-model edits without placing rendering types in the
   domain layer.
@@ -167,6 +174,10 @@ movement.
 - **Reset:** restore the prototype formation, route, coverage, quarterback,
   and target.
 - **Run Play:** preview the current `PlayDefinition` in 3D.
+- **Simulation:** edit pre-snap delay, choose a time-based or receiver-route-
+  milestone throw trigger, set short/medium/deep pass arc and deterministic
+  outcome, and tune defensive reaction and rusher release delays. These values
+  are saved with each play.
 
 ### Play library and persistence
 
@@ -217,6 +228,10 @@ current operating system's per-user application-data directory.
 - Enter a time in seconds and choose **Add Cut** to add the selected camera to
   the current play's cut list. Select a cut and choose **Delete Cut** to remove
   it. Timed cuts run when **Run Play** is pressed.
+
+The play simulation, camera cuts, and play-context dialogue start together on
+the same playback timeline. Cameras and dialogue remain presentation systems
+and do not alter the authored football outcome.
 
 Camera definitions, cuts, and the saved POV settings are included whenever
 **Save Project** is used and are restored by **Load Project**. Live Free Look
@@ -399,6 +414,17 @@ coupling audio to football rules. Concurrent lines each own an independent 3D
 source, so nearby conversations may overlap.
 
 ### Humanoid validation
+
+The focused football simulation validation is available with:
+
+```powershell
+godot --headless --path . -- --validate-football-simulation
+```
+
+It checks snap, route, reaction, throw and catch timing; pass arcs; every
+authored outcome; flag pulls; score, possession, down and distance updates;
+JSON persistence; repeatability; and camera/dialogue timing against the same
+play duration.
 
 After building, run the focused headless validation with:
 
@@ -604,3 +630,13 @@ normal playback and use a deterministic tone only for explicit preview. Speech
 styles still use simple range multipliers rather than acoustic simulation, and
 expression/gaze restoration returns to the prior visible direction rather than
 resuming a formerly tracked moving gaze target.
+
+The initial football simulator is an authored filmmaking system, not a full
+rules engine. Route classification is inferred from waypoint geometry, player
+speed and acceleration use position-based assignment defaults, zone landmarks
+and one eligible rusher are selected deterministically, and catch, drop,
+interception, touchdown, and boundary results follow the director's saved
+outcome rather than collision probability. Ball flight is an authored arc, not
+rigid-body aerodynamics; blocking, contact, penalties, lateral pitches,
+adaptive quarterback reads, stochastic skill checks, and officiating remain
+out of scope.

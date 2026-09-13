@@ -86,6 +86,7 @@ public partial class Main : Node3D
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
         _director.RunRequested += OnRunPlayRequested;
+        _director.SimulationSettingsChanged += () => _gameDirector.SetStatus("Simulation settings updated");
         _gameDirector.PlaySelected += OnPlaySelected;
         _gameDirector.CreateRequested += OnCreatePlayRequested;
         _gameDirector.RenameRequested += OnRenamePlayRequested;
@@ -127,7 +128,9 @@ public partial class Main : Node3D
         _dialogueDirector.RawAudioTestRequested += OnRawAudioTestRequested;
         _dialogueDirector.SpatialAudioTestRequested += OnSpatialAudioTestRequested;
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-football-simulation"))
+            CallDeferred(nameof(RunFootballSimulationValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
             CallDeferred(nameof(RunCameraProfileValidation));
@@ -151,6 +154,22 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private void RunFootballSimulationValidation()
+    {
+        var validator = new FootballSimulationValidator { Name = "FootballSimulationValidator" };
+        AddChild(validator);
+        try
+        {
+            validator.Run();
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private void RunWorkspaceValidation()
@@ -578,6 +597,7 @@ public partial class Main : Node3D
             return;
 
         var resetPlay = PlayDefinition.CreatePrototype(_game, _play.Name, _play.Id);
+        resetPlay.SetSimulationSettings(_play.SimulationSettings);
         _project.ReplacePlay(_play.Id, resetPlay);
         SwitchToPlay(resetPlay.Id, "Formation reset");
     }
@@ -609,7 +629,16 @@ public partial class Main : Node3D
         {
             var dialogue = _dialogueController.PlaySequencesAsync(
                 _project.DialogueForPlay(_play.Id).Where(sequence => sequence.Context == DialogueSequenceContext.Play));
-            await System.Threading.Tasks.Task.WhenAll(_sequence.RunAsync(), dialogue);
+            var simulation = _sequence.RunAsync();
+            await System.Threading.Tasks.Task.WhenAll(simulation, dialogue);
+            var outcome = await simulation;
+            if (outcome is not null)
+            {
+                _project.ApplyPlayOutcome(outcome);
+                _gameDirector.RefreshScoreboard();
+                _director.SetPossession(_project.Possession.Id);
+                _gameDirector.SetStatus(outcome.Description);
+            }
         }
         catch (Exception exception)
         {

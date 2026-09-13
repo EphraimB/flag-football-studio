@@ -80,6 +80,7 @@ public sealed class GameProject
     public int Down { get; private set; }
     public int Distance { get; private set; }
     public Team Possession { get; private set; }
+    public string LastPlayResult { get; private set; } = "No play run";
     public IReadOnlyList<PlayDefinition> Plays => _readOnlyPlays;
     public IReadOnlyList<CameraDefinition> Cameras => _readOnlyCameras;
     public IReadOnlyList<CameraCut> CameraCuts => _readOnlyCameraCuts;
@@ -120,6 +121,53 @@ public sealed class GameProject
         GameClockSeconds = gameClockSeconds;
         Down = down;
         Distance = distance;
+    }
+
+    public void ApplyPlayOutcome(PlayOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        LastPlayResult = outcome.Description;
+        GameClockSeconds = Math.Max(0, GameClockSeconds - (int)Math.Ceiling(outcome.EndTimeSeconds));
+
+        if (outcome.Touchdown)
+        {
+            if (Possession.Id == HomeTeam.Id) HomeScore += 6;
+            else AwayScore += 6;
+            ChangePossession();
+            return;
+        }
+
+        if (outcome.PossessionChanges)
+        {
+            ChangePossession();
+            return;
+        }
+
+        var remaining = Math.Max(0, Distance - outcome.YardsGained);
+        if (remaining == 0)
+        {
+            Down = 1;
+            Distance = 10;
+        }
+        else if (Down < 4)
+        {
+            Down++;
+            Distance = remaining;
+        }
+        else
+        {
+            ChangePossession();
+        }
+    }
+
+    public void SetLastPlayResult(string result) =>
+        LastPlayResult = string.IsNullOrWhiteSpace(result) ? "No play run" : result.Trim();
+
+    private void ChangePossession()
+    {
+        Possession = Possession.Id == HomeTeam.Id ? AwayTeam : HomeTeam;
+        Down = 1;
+        Distance = 10;
     }
 
     public void AddPlay(PlayDefinition play)

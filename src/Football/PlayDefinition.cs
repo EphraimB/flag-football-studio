@@ -42,6 +42,7 @@ public sealed class PlayDefinition
     public string Name { get; private set; }
     public Guid QuarterbackId { get; private set; }
     public Guid IntendedReceiverId { get; private set; }
+    public PlaySimulationSettings SimulationSettings { get; private set; } = PlaySimulationSettings.Default;
 
     public void Rename(string name) => Name = ValidateName(name);
 
@@ -77,6 +78,9 @@ public sealed class PlayDefinition
         IntendedReceiverId = playerId;
     }
 
+    public void SetSimulationSettings(PlaySimulationSettings settings) =>
+        SimulationSettings = settings.Validated();
+
     public PlayDefinition Duplicate(string name)
     {
         var copy = new PlayDefinition(_playerIds, name);
@@ -90,6 +94,7 @@ public sealed class PlayDefinition
             copy.SetQuarterback(QuarterbackId);
         if (IntendedReceiverId != Guid.Empty)
             copy.SetIntendedReceiver(IntendedReceiverId);
+        copy.SetSimulationSettings(SimulationSettings);
         return copy;
     }
 

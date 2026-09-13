@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using FlagFootballStudio.Domain;
 using Godot;
@@ -9,6 +9,7 @@ namespace FlagFootballStudio.Presentation;
 
 public partial class PlaySequenceController : Node
 {
+    private readonly FootballPlaySimulator _simulator = new();
     private PlayDefinition _play = null!;
     private IReadOnlyDictionary<Guid, Node3D> _pawns = null!;
     private Node3D _football = null!;
@@ -17,8 +18,11 @@ public partial class PlaySequenceController : Node
     private Team _offense = null!;
     private Team _defense = null!;
     private Vector3 _ballStart;
+    private int _nextEventIndex;
+    private Guid? _attachedBallPlayerId;
 
     public bool IsRunning { get; private set; }
+    public PlaySimulation? LastSimulation { get; private set; }
 
     public void Configure(
         PlayDefinition play,
@@ -47,68 +51,30 @@ public partial class PlaySequenceController : Node
         _defense = defense;
     }
 
-    public async Task RunAsync()
+    public async Task<PlayOutcome?> RunAsync()
     {
         if (IsRunning)
-            return;
+            return null;
 
         IsRunning = true;
         try
         {
             ResetPlay();
-            var quarterback = Pawn(_play.QuarterbackId, "quarterback");
-            var receiver = Pawn(_play.IntendedReceiverId, "intended receiver");
-            var center = FindCenterFor(quarterback);
-
-            _status.Text = "Snap";
-            SetAnimation(center, HumanoidAnimationState.Turn, true);
-            SetAnimation(quarterback, HumanoidAnimationState.Catch, true);
-            await MoveToAsync(_football, quarterback.GlobalPosition + new Vector3(0, 1.25f, 0), 0.45);
-            SetAnimation(center, HumanoidAnimationState.Idle);
-            SetAnimation(quarterback, HumanoidAnimationState.Idle);
-
-            _status.Text = "Routes and coverage";
-            var movements = BuildRouteMovements();
-            if (movements.Count > 0)
-                await Task.WhenAll(movements);
-
-            _status.Text = "Throw";
-            FaceToward(quarterback, receiver.GlobalPosition);
-            SetAnimation(quarterback, HumanoidAnimationState.Turn, true);
-            await PauseAsync(0.16);
-            SetAnimation(quarterback, HumanoidAnimationState.Throw, true);
-            var catchTarget = receiver is PlayerPawn receiverPawn
-                ? receiverPawn.CatchAnchor.GlobalPosition
-                : receiver.GlobalPosition + new Vector3(0, 1.45f, 0);
-            await ThrowToAsync(catchTarget, 0.85);
-            SetAnimation(quarterback, HumanoidAnimationState.Idle);
-
-            _status.Text = "Catch!";
-            SetAnimation(receiver, HumanoidAnimationState.Catch, true);
-            var catchAnchor = receiver is PlayerPawn catchingPawn ? catchingPawn.CatchAnchor : receiver;
-            _football.Reparent(catchAnchor, false);
-            _football.Position = Vector3.Zero;
-            await PauseAsync(0.35);
-
-            var closingDefenders = _play.CoverageAssignments
-                .Where(assignment => assignment.Value == _play.IntendedReceiverId)
-                .Select(assignment => MovePawnToAsync(
-                    Pawn(assignment.Key, "defender"),
-                    receiver.GlobalPosition + new Vector3(0.75f, 0, 0.75f),
-                    0.55,
-                    HumanoidAnimationState.Sprint))
-                .ToArray();
-            if (closingDefenders.Length > 0)
+            LastSimulation = _simulator.Simulate(_play, _offense, _defense);
+            _nextEventIndex = 0;
+            var stopwatch = Stopwatch.StartNew();
+            while (stopwatch.Elapsed.TotalSeconds < LastSimulation.DurationSeconds)
             {
-                _status.Text = "Defender closes in";
-                await Task.WhenAll(closingDefenders);
-                foreach (var assignment in _play.CoverageAssignments.Where(pair => pair.Value == _play.IntendedReceiverId))
-                    SetAnimation(Pawn(assignment.Key, "defender"), HumanoidAnimationState.FlagPull, true);
-                SetAnimation(receiver, HumanoidAnimationState.Turn, true);
-                await PauseAsync(0.55);
+                var elapsed = stopwatch.Elapsed.TotalSeconds;
+                ApplyFrame(LastSimulation.FrameAt(elapsed));
+                ApplyEventsThrough(LastSimulation, elapsed);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
 
-            _status.Text = "Play complete";
+            ApplyFrame(LastSimulation.Frames[^1]);
+            ApplyEventsThrough(LastSimulation, LastSimulation.DurationSeconds);
+            _status.Text = LastSimulation.Outcome.Description;
+            return LastSimulation.Outcome;
         }
         finally
         {
@@ -117,12 +83,71 @@ public partial class PlaySequenceController : Node
         }
     }
 
+    private void ApplyFrame(SimulationFrame frame)
+    {
+        foreach (var state in frame.Players.Values)
+        {
+            var pawn = Pawn(state.PlayerId, "simulation player");
+            pawn.Position = ToGodot(state.Position);
+            if (state.FacingDirection.X * state.FacingDirection.X + state.FacingDirection.Z * state.FacingDirection.Z > 0.0001f && pawn is PlayerPawn playerPawn)
+                playerPawn.FaceToward(pawn.GlobalPosition + ToGodot(state.FacingDirection), 0);
+            SetAnimation(pawn, ToAnimation(state.MotionState));
+        }
+
+        ApplyBall(frame.Ball);
+    }
+
+    private void ApplyBall(BallState ball)
+    {
+        if (ball.Phase is BallPhase.Caught or BallPhase.Intercepted && ball.PossessingPlayerId.HasValue)
+        {
+            if (_attachedBallPlayerId != ball.PossessingPlayerId)
+            {
+                var owner = Pawn(ball.PossessingPlayerId.Value, "ball carrier");
+                var anchor = owner is PlayerPawn pawn ? pawn.CatchAnchor : owner;
+                _football.Reparent(anchor, false);
+                _football.Position = Vector3.Zero;
+                _attachedBallPlayerId = ball.PossessingPlayerId;
+            }
+            return;
+        }
+
+        if (_football.GetParent() != _footballHome)
+            _football.Reparent(_footballHome, true);
+        _attachedBallPlayerId = null;
+        _football.GlobalPosition = ToGodot(ball.Position);
+    }
+
+    private void ApplyEventsThrough(PlaySimulation simulation, double elapsed)
+    {
+        while (_nextEventIndex < simulation.Events.Count && simulation.Events[_nextEventIndex].TimeSeconds <= elapsed)
+        {
+            var simulationEvent = simulation.Events[_nextEventIndex++];
+            _status.Text = string.IsNullOrWhiteSpace(simulationEvent.Description)
+                ? simulationEvent.Type.ToString()
+                : simulationEvent.Description;
+
+            if (simulationEvent.Type == SimulationEventType.ThrowReleased && simulationEvent.PlayerId.HasValue)
+                SetAnimation(Pawn(simulationEvent.PlayerId.Value, "quarterback"), HumanoidAnimationState.Throw, true);
+            else if (simulationEvent.Type == SimulationEventType.PassCompleted && simulationEvent.PlayerId.HasValue)
+                SetAnimation(Pawn(simulationEvent.PlayerId.Value, "receiver"), HumanoidAnimationState.Catch, true);
+            else if (simulationEvent.Type == SimulationEventType.Intercepted && simulationEvent.PlayerId.HasValue)
+                SetAnimation(Pawn(simulationEvent.PlayerId.Value, "interceptor"), HumanoidAnimationState.Catch, true);
+            else if (simulationEvent.Type == SimulationEventType.FlagPullAttempted)
+            {
+                foreach (var state in simulation.FrameAt(simulationEvent.TimeSeconds).Players.Values)
+                    if (state.MotionState == SimulationMotionState.FlagPull)
+                        SetAnimation(Pawn(state.PlayerId, "flag puller"), HumanoidAnimationState.FlagPull, true);
+            }
+        }
+    }
+
     private void ResetPlay()
     {
         foreach (var startingPosition in _play.StartingPositions)
         {
             var pawn = Pawn(startingPosition.Key, "formation player");
-            pawn.Position = ToWorld(startingPosition.Value);
+            pawn.Position = new Vector3(startingPosition.Value.X, 0.08f, startingPosition.Value.Y);
             if (pawn is PlayerPawn playerPawn)
                 playerPawn.ResetPresentationPose();
         }
@@ -131,76 +156,8 @@ public partial class PlaySequenceController : Node
         if (_football.GetParent() != _footballHome)
             _football.Reparent(_footballHome, false);
         _football.Position = _ballStart;
+        _attachedBallPlayerId = null;
     }
-
-    private List<Task> BuildRouteMovements()
-    {
-        var movements = new List<Task>();
-        foreach (var route in _play.Routes)
-        {
-            if (route.Value.Count > 0)
-                movements.Add(AnimatePathAsync(Pawn(route.Key, "route runner"), route.Value, HumanoidAnimationState.Sprint));
-        }
-
-        foreach (var assignment in _play.CoverageAssignments)
-        {
-            if (!_play.Routes.TryGetValue(assignment.Value, out var coveredRoute) || coveredRoute.Count == 0)
-                continue;
-
-            var defenderStart = _play.StartingPositions[assignment.Key];
-            var offenseStart = _play.StartingPositions[assignment.Value];
-            var offset = new PlayPoint(defenderStart.X - offenseStart.X, defenderStart.Y - offenseStart.Y);
-            var coveragePath = coveredRoute
-                .Select(point => new PlayPoint(point.X + offset.X * 0.45f, point.Y + offset.Y * 0.45f))
-                .ToArray();
-            movements.Add(AnimatePathAsync(Pawn(assignment.Key, "defender"), coveragePath, HumanoidAnimationState.Jog));
-        }
-        return movements;
-    }
-
-    private async Task AnimatePathAsync(Node3D node, IReadOnlyList<PlayPoint> path, HumanoidAnimationState locomotionState)
-    {
-        SetAnimation(node, locomotionState, true);
-        foreach (var waypoint in path)
-        {
-            FaceToward(node, ToWorld(waypoint));
-            var tween = CreateTween();
-            tween.TweenProperty(node, "position", ToWorld(waypoint), 0.55).SetTrans(Tween.TransitionType.Sine);
-            await ToSignal(tween, Tween.SignalName.Finished);
-        }
-        SetAnimation(node, HumanoidAnimationState.Idle);
-    }
-
-    private async Task MovePawnToAsync(Node3D node, Vector3 target, double duration, HumanoidAnimationState locomotionState)
-    {
-        FaceToward(node, target);
-        SetAnimation(node, locomotionState, true);
-        await MoveToAsync(node, target, duration);
-        SetAnimation(node, HumanoidAnimationState.Idle);
-    }
-
-    private async Task MoveToAsync(Node3D node, Vector3 target, double duration)
-    {
-        var tween = CreateTween();
-        tween.TweenProperty(node, "global_position", target, duration).SetTrans(Tween.TransitionType.Sine);
-        await ToSignal(tween, Tween.SignalName.Finished);
-    }
-
-    private async Task ThrowToAsync(Vector3 target, double duration)
-    {
-        var start = _football.GlobalPosition;
-        var tween = CreateTween();
-        tween.TweenMethod(Callable.From<float>(progress =>
-        {
-            var position = start.Lerp(target, progress);
-            position.Y += Mathf.Sin(progress * Mathf.Pi) * 2.2f;
-            _football.GlobalPosition = position;
-        }), 0f, 1f, duration).SetTrans(Tween.TransitionType.Sine);
-        await ToSignal(tween, Tween.SignalName.Finished);
-    }
-
-    private async Task PauseAsync(double duration) =>
-        await ToSignal(GetTree().CreateTimer(duration), SceneTreeTimer.SignalName.Timeout);
 
     private Node3D Pawn(Guid playerId, string role)
     {
@@ -209,31 +166,28 @@ public partial class PlaySequenceController : Node
         return pawn;
     }
 
-    private Node3D? FindCenterFor(Node3D quarterback)
-    {
-        var quarterbackTeam = (quarterback as PlayerPawn)?.Player?.Team;
-        return _pawns.Values
-            .OfType<PlayerPawn>()
-            .FirstOrDefault(pawn => pawn.Player?.Position == PlayerPosition.Center && pawn.Player.Team == quarterbackTeam);
-    }
-
     private void SetAllAnimationStates(HumanoidAnimationState state)
     {
         foreach (var pawn in _pawns.Values)
             SetAnimation(pawn, state);
     }
 
-    private static void SetAnimation(Node3D? node, HumanoidAnimationState state, bool restart = false)
+    private static void SetAnimation(Node3D node, HumanoidAnimationState state, bool restart = false)
     {
-        if (node is PlayerPawn pawn)
+        if (node is PlayerPawn pawn && (restart || pawn.AnimationState != state))
             pawn.SetAnimationState(state, restart);
     }
 
-    private static void FaceToward(Node3D node, Vector3 target)
+    private static HumanoidAnimationState ToAnimation(SimulationMotionState state) => state switch
     {
-        if (node is PlayerPawn pawn)
-            pawn.FaceToward(target);
-    }
+        SimulationMotionState.Jog => HumanoidAnimationState.Jog,
+        SimulationMotionState.Sprint => HumanoidAnimationState.Sprint,
+        SimulationMotionState.Turn => HumanoidAnimationState.Turn,
+        SimulationMotionState.Throw => HumanoidAnimationState.Throw,
+        SimulationMotionState.Catch => HumanoidAnimationState.Catch,
+        SimulationMotionState.FlagPull => HumanoidAnimationState.FlagPull,
+        _ => HumanoidAnimationState.Idle
+    };
 
-    private static Vector3 ToWorld(PlayPoint point) => new(point.X, 0.08f, point.Y);
+    private static Vector3 ToGodot(SimulationVector3 value) => new(value.X, value.Y, value.Z);
 }

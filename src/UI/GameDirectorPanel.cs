@@ -14,6 +14,7 @@ public partial class GameDirectorPanel : PanelContainer
     private Guid _activePlayId;
     private Label _scoreLabel = null!;
     private Label _situationLabel = null!;
+    private Label _lastPlayLabel = null!;
     private Label _statusLabel = null!;
     private ItemList _playList = null!;
     private LineEdit _nameEdit = null!;
@@ -104,6 +105,10 @@ public partial class GameDirectorPanel : PanelContainer
         _situationLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
         stack.AddChild(_situationLabel);
 
+        _lastPlayLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
+        _lastPlayLabel.AddThemeColorOverride("font_color", new Color("ffe08a"));
+        stack.AddChild(_lastPlayLabel);
+
         _statusLabel = new Label { Text = "Ready", HorizontalAlignment = HorizontalAlignment.Center };
         stack.AddChild(_statusLabel);
         stack.AddChild(new HSeparator());
@@ -136,12 +141,13 @@ public partial class GameDirectorPanel : PanelContainer
         AddButton(fileActions, "Load Project", () => LoadRequested?.Invoke());
     }
 
-    private void RefreshScoreboard()
+    public void RefreshScoreboard()
     {
         _scoreLabel.Text = $"{_project.HomeTeam.Name.ToUpperInvariant()} {_project.HomeScore}  —  {_project.AwayScore} {_project.AwayTeam.Name.ToUpperInvariant()}";
         var minutes = _project.GameClockSeconds / 60;
         var seconds = _project.GameClockSeconds % 60;
         _situationLabel.Text = $"Q{_project.Quarter}  {minutes:00}:{seconds:00}  •  {Ordinal(_project.Down)} & {_project.Distance}  •  {_project.Possession.Name.ToUpperInvariant()} BALL";
+        _lastPlayLabel.Text = $"Last play: {_project.LastPlayResult}";
     }
 
     private void OnItemSelected(long index)

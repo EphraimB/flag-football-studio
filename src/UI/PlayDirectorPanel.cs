@@ -32,16 +32,27 @@ public partial class PlayDirectorPanel : Control
     private Guid? _selectedPlayerId;
     private Guid? _draggedPlayerId;
     private Label _instructionLabel = null!;
+    private SpinBox _snapDelay = null!;
+    private SpinBox _throwTime = null!;
+    private OptionButton _throwTrigger = null!;
+    private SpinBox _throwMilestone = null!;
+    private SpinBox _defensiveReaction = null!;
+    private SpinBox _rusherDelay = null!;
+    private OptionButton _passArc = null!;
+    private OptionButton _intendedOutcome = null!;
+    private bool _refreshingSimulationControls;
 
     public event Action? FormationChanged;
     public event Action? ResetRequested;
     public event Action? RunRequested;
+    public event Action? SimulationSettingsChanged;
 
     public void Configure(Game game, PlayDefinition play, Guid possessionTeamId)
     {
         SetRoster(game, possessionTeamId);
         _play = play;
         BuildToolbar();
+        RefreshSimulationControls();
         UpdateInstructions();
         QueueRedraw();
     }
@@ -94,6 +105,7 @@ public partial class PlayDirectorPanel : Control
         _play = play;
         _selectedPlayerId = null;
         _draggedPlayerId = null;
+        RefreshSimulationControls();
         UpdateInstructions();
         QueueRedraw();
     }
@@ -103,6 +115,11 @@ public partial class PlayDirectorPanel : Control
         _draggedPlayerId = null;
         foreach (var button in _buttons)
             button.Disabled = !enabled;
+        foreach (var field in new[] { _snapDelay, _throwTime, _throwMilestone, _defensiveReaction, _rusherDelay })
+            field.Editable = enabled;
+        _throwTrigger.Disabled = !enabled;
+        _passArc.Disabled = !enabled;
+        _intendedOutcome.Disabled = !enabled;
         MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
     }
 
@@ -228,7 +245,7 @@ public partial class PlayDirectorPanel : Control
         var stack = new VBoxContainer
         {
             Position = new Vector2(12, 10),
-            Size = new Vector2(Size.X - 24, 100)
+            Size = new Vector2(Size.X - 24, 250)
         };
         AddChild(stack);
 
@@ -250,8 +267,97 @@ public partial class PlayDirectorPanel : Control
         AddActionButton(actions, "Reset", () => ResetRequested?.Invoke());
         AddActionButton(actions, "Run Play", () => RunRequested?.Invoke());
 
+        var simulationTitle = new Label { Text = "SIMULATION", HorizontalAlignment = HorizontalAlignment.Center };
+        simulationTitle.AddThemeFontSizeOverride("font_size", 14);
+        stack.AddChild(simulationTitle);
+
+        var simulation = new GridContainer { Columns = 6 };
+        stack.AddChild(simulation);
+        _snapDelay = AddSimulationField(simulation, "Snap delay", 0, 5, 0.1, " s");
+        _throwTime = AddSimulationField(simulation, "Throw after snap", 0.35, 8, 0.05, " s");
+        _throwTrigger = AddSimulationOption<ThrowTriggerMode>(simulation, "Throw trigger");
+        _throwMilestone = AddSimulationField(simulation, "Route milestone", 0.05, 1, 0.05, "");
+        _passArc = AddSimulationOption<PassArcPreset>(simulation, "Pass arc");
+        _intendedOutcome = AddSimulationOption<PlayOutcomeKind>(simulation, "Outcome");
+        _defensiveReaction = AddSimulationField(simulation, "Defense reaction", 0, 3, 0.05, " s");
+        _rusherDelay = AddSimulationField(simulation, "Rusher delay", 0, 5, 0.05, " s");
+
         _instructionLabel = new Label { HorizontalAlignment = HorizontalAlignment.Center };
         stack.AddChild(_instructionLabel);
+    }
+
+    private SpinBox AddSimulationField(GridContainer grid, string label, double minimum, double maximum, double step, string suffix)
+    {
+        grid.AddChild(new Label { Text = label });
+        var field = new SpinBox
+        {
+            MinValue = minimum,
+            MaxValue = maximum,
+            Step = step,
+            Suffix = suffix,
+            CustomMinimumSize = new Vector2(92, 0)
+        };
+        field.ValueChanged += _ => RequestSimulationSettingsChange();
+        grid.AddChild(field);
+        return field;
+    }
+
+    private OptionButton AddSimulationOption<T>(GridContainer grid, string label) where T : struct, Enum
+    {
+        grid.AddChild(new Label { Text = label });
+        var option = new OptionButton { CustomMinimumSize = new Vector2(132, 0) };
+        foreach (var value in Enum.GetValues<T>())
+            option.AddItem(DisplayEnum(value.ToString()), Convert.ToInt32(value));
+        option.ItemSelected += _ => RequestSimulationSettingsChange();
+        grid.AddChild(option);
+        return option;
+    }
+
+    private void RefreshSimulationControls()
+    {
+        if (_snapDelay is null)
+            return;
+        _refreshingSimulationControls = true;
+        var settings = _play.SimulationSettings;
+        _snapDelay.Value = settings.PreSnapDelay;
+        _throwTime.Value = settings.ThrowTime;
+        _throwTrigger.Select((int)settings.ThrowTrigger);
+        _throwMilestone.Value = settings.ThrowRouteProgress;
+        _passArc.Select((int)settings.PassArc);
+        _intendedOutcome.Select((int)settings.IntendedOutcome);
+        _defensiveReaction.Value = settings.DefensiveReactionDelay;
+        _rusherDelay.Value = settings.RusherDelay;
+        _refreshingSimulationControls = false;
+    }
+
+    private void RequestSimulationSettingsChange()
+    {
+        if (_refreshingSimulationControls)
+            return;
+        var current = _play.SimulationSettings;
+        _play.SetSimulationSettings(current with
+        {
+            PreSnapDelay = _snapDelay.Value,
+            ThrowTime = _throwTime.Value,
+            ThrowTrigger = (ThrowTriggerMode)_throwTrigger.GetSelectedId(),
+            ThrowRouteProgress = (float)_throwMilestone.Value,
+            PassArc = (PassArcPreset)_passArc.GetSelectedId(),
+            IntendedOutcome = (PlayOutcomeKind)_intendedOutcome.GetSelectedId(),
+            DefensiveReactionDelay = _defensiveReaction.Value,
+            RusherDelay = _rusherDelay.Value
+        });
+        SimulationSettingsChanged?.Invoke();
+    }
+
+    private static string DisplayEnum(string value)
+    {
+        var characters = new List<char>();
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (index > 0 && char.IsUpper(value[index])) characters.Add(' ');
+            characters.Add(value[index]);
+        }
+        return new string(characters.ToArray());
     }
 
     private void AddModeButton(Node parent, string text, EditorMode mode) =>
@@ -339,7 +445,7 @@ public partial class PlayDirectorPanel : Control
     private Color TeamColor(Guid playerId) =>
         _goldIds.Contains(playerId) ? new Color("d8a91b") : new Color("173b73");
 
-    private Rect2 FieldRect() => new(16, 128, Mathf.Max(100, Size.X - 32), Mathf.Max(100, Size.Y - 144));
+    private Rect2 FieldRect() => new(16, 280, Mathf.Max(100, Size.X - 32), Mathf.Max(100, Size.Y - 296));
 
     private Vector2 FieldToCanvas(PlayPoint point)
     {
