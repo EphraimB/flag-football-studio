@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using FlagFootballStudio.Domain;
 using FlagFootballStudio.Persistence;
+using FlagFootballStudio.Tts;
 using Godot;
 
 namespace FlagFootballStudio.Presentation;
@@ -12,6 +13,7 @@ public partial class DialogueDirectorPanel : PanelContainer
     private readonly List<Guid> _sequenceIds = [];
     private readonly List<Guid> _lineIds = [];
     private readonly List<Guid> _playerIds = [];
+    private readonly List<Guid> _voiceProfileIds = [];
     private GameProject _project = null!;
     private Guid _playId;
     private Guid _selectedSequenceId;
@@ -47,13 +49,23 @@ public partial class DialogueDirectorPanel : PanelContainer
     private SpinBox _seekTime = null!;
     private int _selectedVisemeIndex = -1;
     private LineEdit _voiceName = null!;
+    private OptionButton _voiceProfile = null!;
     private LineEdit _voiceDescription = null!;
     private SpinBox _voiceVolume = null!;
     private SpinBox _voicePitch = null!;
     private SpinBox _voiceRate = null!;
+    private OptionButton _ttsBackend = null!;
+    private LineEdit _ttsModel = null!;
+    private LineEdit _ttsSpeaker = null!;
+    private LineEdit _ttsStyle = null!;
+    private LineEdit _ttsEmotion = null!;
+    private Label _generationStatus = null!;
+    private FileDialog _modelDialog = null!;
 
     public event Action<DialogueLine>? PreviewLineRequested;
     public event Action<DialogueLine, double>? PreviewFromTimeRequested;
+    public event Action<DialogueLine, PlayerVoiceProfile, bool>? GenerateSpeechRequested;
+    public event Action<DialogueLine, bool>? GenerateLipSyncRequested;
     public event Action<string>? StatusChanged;
 
     public void Configure(GameProject project, PlayDefinition play, ProjectAudioAssetStore audioAssets)
@@ -154,12 +166,28 @@ public partial class DialogueDirectorPanel : PanelContainer
         stack.AddChild(audioHelp);
         var voiceGrid = new GridContainer { Columns = 6 };
         stack.AddChild(voiceGrid);
+        _voiceProfile = new OptionButton(); AddField(voiceGrid, "Voice profile", _voiceProfile);
         _voiceName = new LineEdit(); AddField(voiceGrid, "Voice", _voiceName);
         _voiceDescription = new LineEdit { PlaceholderText = "Optional description" }; AddField(voiceGrid, "Description", _voiceDescription);
         _voiceVolume = Number(0, 1, 0.05, 1); AddField(voiceGrid, "Default volume", _voiceVolume);
         _voicePitch = Number(-12, 12, 0.25, 0); AddField(voiceGrid, "Pitch semitones", _voicePitch);
         _voiceRate = Number(0.5, 2, 0.05, 1); AddField(voiceGrid, "Rate metadata", _voiceRate);
+        _ttsBackend = EnumOption<TtsBackendType>(); AddField(voiceGrid, "TTS backend", _ttsBackend);
+        _ttsModel = new LineEdit { PlaceholderText = "Path to installed Piper .onnx model" }; AddField(voiceGrid, "Model", _ttsModel);
+        _ttsSpeaker = new LineEdit { PlaceholderText = "Optional multi-speaker ID" }; AddField(voiceGrid, "Speaker ID", _ttsSpeaker);
+        _ttsStyle = new LineEdit { PlaceholderText = "Optional provider style" }; AddField(voiceGrid, "Style", _ttsStyle);
+        _ttsEmotion = new LineEdit { PlaceholderText = "Optional provider emotion" }; AddField(voiceGrid, "Emotion", _ttsEmotion);
+        AddButton(voiceGrid, "Choose Model...", () => _modelDialog.PopupCenteredRatio(0.7f));
         AddButton(voiceGrid, "Save Voice", SaveVoiceProfile);
+
+        var generationActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(generationActions);
+        AddButton(generationActions, "Generate Speech", () => RequestSpeech(false));
+        AddButton(generationActions, "Regenerate Speech", () => RequestSpeech(true));
+        AddButton(generationActions, "Generate Lip Sync", () => RequestLipSync(false));
+        AddButton(generationActions, "Regenerate Lip Sync", () => RequestLipSync(true));
+        _generationStatus = new Label { Text = "TTS idle", AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        stack.AddChild(_generationStatus);
 
         var audioActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         stack.AddChild(audioActions);
@@ -215,6 +243,17 @@ public partial class DialogueDirectorPanel : PanelContainer
         _audioDialog.FileSelected += ImportAudio;
         AddChild(_audioDialog);
 
+        _modelDialog = new FileDialog
+        {
+            FileMode = FileDialog.FileModeEnum.OpenFile,
+            Access = FileDialog.AccessEnum.Filesystem,
+            Title = "Choose Installed Piper Model",
+            UseNativeDialog = true,
+            Filters = ["*.onnx ; Piper ONNX Voice"]
+        };
+        _modelDialog.FileSelected += path => _ttsModel.Text = path;
+        AddChild(_modelDialog);
+
         stack.MoveChild(voiceSeparator, 3);
         stack.MoveChild(voiceHeading, 4);
         stack.MoveChild(audioHelp, 5);
@@ -222,8 +261,11 @@ public partial class DialogueDirectorPanel : PanelContainer
         stack.MoveChild(audioInfo, 7);
         stack.MoveChild(_developerToneEnabled, 8);
         stack.MoveChild(voiceGrid, 9);
+        stack.MoveChild(generationActions, 10);
+        stack.MoveChild(_generationStatus, 11);
 
         _speaker.ItemSelected += _ => RefreshVoiceProfile();
+        _voiceProfile.ItemSelected += _ => LoadSelectedVoiceProfile();
     }
 
     private void PopulatePlayers()
@@ -237,6 +279,13 @@ public partial class DialogueDirectorPanel : PanelContainer
             _speaker.AddItem($"{player.Team!.Name} {player.Name}");
             _listener.AddItem($"{player.Team!.Name} {player.Name}");
             _gazePlayer.AddItem($"{player.Team!.Name} {player.Name}");
+        }
+        _voiceProfileIds.Clear();
+        _voiceProfile.Clear();
+        foreach (var profile in _project.PlayerVoiceProfiles.Values.OrderBy(profile => PlayerName(profile.PlayerId)))
+        {
+            _voiceProfileIds.Add(profile.Id);
+            _voiceProfile.AddItem($"{profile.DisplayName} ({PlayerName(profile.PlayerId)})");
         }
     }
 
@@ -272,7 +321,7 @@ public partial class DialogueDirectorPanel : PanelContainer
                 listenerId, expressionId < 0 ? null : (DialogueExpression)expressionId,
                 (DialogueGazeTargetKind)_gazeKind.GetSelectedId(), gazeId,
                 new DialoguePoint((float)_worldPoint[0].Value, (float)_worldPoint[1].Value, (float)_worldPoint[2].Value),
-                existing?.AudioReference, existing?.LipSyncEvents);
+                existing?.AudioReference, existing?.LipSyncEvents, existing?.LipSyncSource ?? LipSyncSource.None);
             var sequence = _project.DialogueSequence(_selectedSequenceId);
             if (_selectedLineId == Guid.Empty) sequence.AddLine(line); else sequence.ReplaceLine(line);
             _selectedLineId = line.Id;
@@ -393,10 +442,13 @@ public partial class DialogueDirectorPanel : PanelContainer
         if (_speaker.Selected < 0) return;
         try
         {
-            var playerId = _playerIds[_speaker.Selected];
-            var profile = _project.VoiceProfileFor(playerId);
+            var profile = SelectedVoiceProfile();
             profile.Update(_voiceName.Text, _voiceDescription.Text, (float)_voiceVolume.Value,
                 (float)_voicePitch.Value, (float)_voiceRate.Value);
+            profile.ConfigureTts((TtsBackendType)_ttsBackend.GetSelectedId(), _ttsModel.Text,
+                _ttsSpeaker.Text, profile.ReferenceAudio, _ttsStyle.Text, _ttsEmotion.Text);
+            if (_voiceProfile.Selected >= 0)
+                _voiceProfile.SetItemText(_voiceProfile.Selected, $"{profile.DisplayName} ({PlayerName(profile.PlayerId)})");
             StatusChanged?.Invoke("Player voice profile saved");
         }
         catch (Exception exception) { StatusChanged?.Invoke(exception.Message); }
@@ -406,11 +458,29 @@ public partial class DialogueDirectorPanel : PanelContainer
     {
         if (_speaker.Selected < 0 || _speaker.Selected >= _playerIds.Count) return;
         var profile = _project.VoiceProfileFor(_playerIds[_speaker.Selected]);
+        var profileIndex = _voiceProfileIds.IndexOf(profile.Id);
+        if (profileIndex >= 0) _voiceProfile.Select(profileIndex);
+        LoadVoiceProfile(profile);
+    }
+
+    private void LoadSelectedVoiceProfile()
+    {
+        if (_voiceProfile.Selected < 0 || _voiceProfile.Selected >= _voiceProfileIds.Count) return;
+        LoadVoiceProfile(_project.PlayerVoiceProfiles.Values.First(profile => profile.Id == _voiceProfileIds[_voiceProfile.Selected]));
+    }
+
+    private void LoadVoiceProfile(PlayerVoiceProfile profile)
+    {
         _voiceName.Text = profile.DisplayName;
         _voiceDescription.Text = profile.Description ?? string.Empty;
         _voiceVolume.Value = profile.DefaultSpeakingVolume;
         _voicePitch.Value = profile.DefaultPitchAdjustment;
         _voiceRate.Value = profile.DefaultSpeakingRate;
+        _ttsBackend.Select((int)profile.BackendType);
+        _ttsModel.Text = profile.ModelIdOrPath ?? string.Empty;
+        _ttsSpeaker.Text = profile.SpeakerId ?? string.Empty;
+        _ttsStyle.Text = profile.Style ?? string.Empty;
+        _ttsEmotion.Text = profile.Emotion ?? string.Empty;
     }
 
     private void ChooseAudio()
@@ -424,7 +494,7 @@ public partial class DialogueDirectorPanel : PanelContainer
         try
         {
             var reference = _audioAssets.Import(sourcePath);
-            ReplaceSelectedLine(reference, SelectedLine().LipSyncEvents);
+            ReplaceSelectedLine(reference, SelectedLine().LipSyncEvents, SelectedLine().LipSyncSource);
             StatusChanged?.Invoke("Voice audio imported into the project audio folder");
         }
         catch (Exception exception) { StatusChanged?.Invoke(exception.Message); }
@@ -433,7 +503,7 @@ public partial class DialogueDirectorPanel : PanelContainer
     private void RemoveAudio()
     {
         if (_selectedLineId == Guid.Empty) return;
-        ReplaceSelectedLine(null, SelectedLine().LipSyncEvents);
+        ReplaceSelectedLine(null, SelectedLine().LipSyncEvents, SelectedLine().LipSyncSource);
         StatusChanged?.Invoke("Audio assignment removed; imported file retained for safe reuse");
     }
 
@@ -460,7 +530,7 @@ public partial class DialogueDirectorPanel : PanelContainer
             if (_selectedVisemeIndex >= 0 && _selectedVisemeIndex < events.Count) events[_selectedVisemeIndex] = item;
             else events.Add(item);
             events.Sort((left, right) => left.StartTime.CompareTo(right.StartTime));
-            ReplaceSelectedLine(line.AudioReference, events);
+            ReplaceSelectedLine(line.AudioReference, events, LipSyncSource.Manual);
             _selectedVisemeIndex = events.IndexOf(item);
             StatusChanged?.Invoke("Timestamped viseme saved");
         }
@@ -474,7 +544,7 @@ public partial class DialogueDirectorPanel : PanelContainer
         var events = line.LipSyncEvents.ToList();
         if (_selectedVisemeIndex < events.Count) events.RemoveAt(_selectedVisemeIndex);
         _selectedVisemeIndex = -1;
-        ReplaceSelectedLine(line.AudioReference, events);
+        ReplaceSelectedLine(line.AudioReference, events, events.Count > 0 ? LipSyncSource.Manual : LipSyncSource.None);
         StatusChanged?.Invoke("Viseme deleted");
     }
 
@@ -490,12 +560,12 @@ public partial class DialogueDirectorPanel : PanelContainer
         PreviewFromTimeRequested?.Invoke(line, _seekTime.Value);
     }
 
-    private void ReplaceSelectedLine(VoiceAudioReference? audio, IEnumerable<VisemeEvent> events)
+    private void ReplaceSelectedLine(VoiceAudioReference? audio, IEnumerable<VisemeEvent> events, LipSyncSource source)
     {
         var line = SelectedLine();
         var replacement = new DialogueLine(line.Id, line.SpeakerPlayerId, line.StartTime, line.Duration, line.Text,
             line.Volume, line.SpeechStyle, line.AudibilityRadius, line.ListenerPlayerId, line.Expression,
-            line.GazeTargetKind, line.GazeTargetPlayerId, line.GazeWorldPoint, audio, events);
+            line.GazeTargetKind, line.GazeTargetPlayerId, line.GazeWorldPoint, audio, events, source);
         _project.DialogueSequence(_selectedSequenceId).ReplaceLine(replacement);
         RefreshLines();
         LoadLine(replacement);
@@ -505,9 +575,13 @@ public partial class DialogueDirectorPanel : PanelContainer
     {
         _audioStatus.Text = line.AudioReference is null
             ? "No audio assigned"
-            : line.HasManualLipSync
+            : line.LipSyncSource == LipSyncSource.Manual
                 ? "Audio assigned — manual lip sync"
-                : "Audio assigned — generic mouth motion";
+                : line.LipSyncSource == LipSyncSource.AutomaticTimed
+                    ? "Audio assigned — automatic timed lip sync"
+                    : line.LipSyncSource == LipSyncSource.AutomaticApproximate
+                        ? "Audio assigned — automatic approximate lip sync"
+                        : "Audio assigned — generic mouth motion";
         _audioFilename.Text = line.AudioReference is null
             ? "—"
             : System.IO.Path.GetFileName(line.AudioReference.RelativePath);
@@ -524,6 +598,47 @@ public partial class DialogueDirectorPanel : PanelContainer
     }
 
     private DialogueLine SelectedLine() => _project.DialogueSequence(_selectedSequenceId).Lines.First(line => line.Id == _selectedLineId);
+
+    private void RequestSpeech(bool regenerate)
+    {
+        if (_selectedLineId == Guid.Empty || _speaker.Selected < 0)
+        {
+            StatusChanged?.Invoke("Select and save a dialogue line first");
+            return;
+        }
+        SaveVoiceProfile();
+        var line = SelectedLine();
+        GenerateSpeechRequested?.Invoke(line, SelectedVoiceProfile(), regenerate);
+    }
+
+    private void RequestLipSync(bool regenerate)
+    {
+        if (_selectedLineId == Guid.Empty) { StatusChanged?.Invoke("Select a dialogue line first"); return; }
+        GenerateLipSyncRequested?.Invoke(SelectedLine(), regenerate);
+    }
+
+    public void SetGenerationStatus(TtsGenerationState state, string detail)
+    {
+        _generationStatus.Text = $"{state}: {detail}";
+        StatusChanged?.Invoke(detail);
+    }
+
+    public void ApplyGeneratedLine(DialogueLine line)
+    {
+        if (_selectedSequenceId == Guid.Empty) return;
+        _project.DialogueSequence(_selectedSequenceId).ReplaceLine(line);
+        _selectedLineId = line.Id;
+        RefreshLines();
+        LoadLine(line);
+    }
+
+    private PlayerVoiceProfile SelectedVoiceProfile()
+    {
+        if (_voiceProfile.Selected < 0 || _voiceProfile.Selected >= _voiceProfileIds.Count)
+            return _project.VoiceProfileFor(_playerIds[_speaker.Selected]);
+        var id = _voiceProfileIds[_voiceProfile.Selected];
+        return _project.PlayerVoiceProfiles.Values.First(profile => profile.Id == id);
+    }
     private Guid? OptionalPlayer(OptionButton option) => option.Selected <= 0 ? null : _playerIds[option.Selected - 1];
     private string PlayerName(Guid id) => _project.HomeTeam.Roster.Concat(_project.AwayTeam.Roster).First(player => player.Id == id).Name;
 

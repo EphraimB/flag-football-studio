@@ -1,5 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
+tools/tts/.venv/
+tools/tts/models/
 /android/
 
 # Godot Mono / .NET generated files

@@ -132,6 +132,12 @@ public sealed class ProjectJsonSerializer
         public float DefaultSpeakingVolume { get; set; } = 1;
         public float DefaultPitchAdjustment { get; set; }
         public float DefaultSpeakingRate { get; set; } = 1;
+        public TtsBackendType BackendType { get; set; }
+        public string? ModelIdOrPath { get; set; }
+        public string? SpeakerId { get; set; }
+        public VoiceAudioReferenceData? ReferenceAudio { get; set; }
+        public string? Style { get; set; }
+        public string? Emotion { get; set; }
 
         public static PlayerVoiceProfileData FromDomain(PlayerVoiceProfile profile) => new()
         {
@@ -141,11 +147,18 @@ public sealed class ProjectJsonSerializer
             Description = profile.Description,
             DefaultSpeakingVolume = profile.DefaultSpeakingVolume,
             DefaultPitchAdjustment = profile.DefaultPitchAdjustment,
-            DefaultSpeakingRate = profile.DefaultSpeakingRate
+            DefaultSpeakingRate = profile.DefaultSpeakingRate,
+            BackendType = profile.BackendType,
+            ModelIdOrPath = profile.ModelIdOrPath,
+            SpeakerId = profile.SpeakerId,
+            ReferenceAudio = profile.ReferenceAudio is null ? null : VoiceAudioReferenceData.FromDomain(profile.ReferenceAudio),
+            Style = profile.Style,
+            Emotion = profile.Emotion
         };
 
         public PlayerVoiceProfile ToDomain() => new(Id, PlayerId, DisplayName, Description,
-            DefaultSpeakingVolume, DefaultPitchAdjustment, DefaultSpeakingRate);
+            DefaultSpeakingVolume, DefaultPitchAdjustment, DefaultSpeakingRate, BackendType,
+            ModelIdOrPath, SpeakerId, ReferenceAudio?.ToDomain(), Style, Emotion);
     }
 
     private sealed class DialogueSequenceData
@@ -191,6 +204,7 @@ public sealed class ProjectJsonSerializer
         public DialoguePoint GazeWorldPoint { get; set; }
         public VoiceAudioReferenceData? AudioReference { get; set; }
         public List<VisemeEventData> LipSyncEvents { get; set; } = [];
+        public LipSyncSource LipSyncSource { get; set; }
 
         public static DialogueLineData FromDomain(DialogueLine line) => new()
         {
@@ -208,14 +222,15 @@ public sealed class ProjectJsonSerializer
             GazeTargetPlayerId = line.GazeTargetPlayerId,
             GazeWorldPoint = line.GazeWorldPoint,
             AudioReference = line.AudioReference is null ? null : VoiceAudioReferenceData.FromDomain(line.AudioReference),
-            LipSyncEvents = line.LipSyncEvents.Select(VisemeEventData.FromDomain).ToList()
+            LipSyncEvents = line.LipSyncEvents.Select(VisemeEventData.FromDomain).ToList(),
+            LipSyncSource = line.LipSyncSource
         };
 
         public DialogueLine ToDomain() => new(
             Id, SpeakerPlayerId, StartTime, Duration, Text, Volume, SpeechStyle,
             AudibilityRadius, ListenerPlayerId, Expression, GazeTargetKind,
             GazeTargetPlayerId, GazeWorldPoint, AudioReference?.ToDomain(),
-            LipSyncEvents.Select(item => item.ToDomain()));
+            LipSyncEvents.Select(item => item.ToDomain()), LipSyncSource);
     }
 
     private sealed class VoiceAudioReferenceData

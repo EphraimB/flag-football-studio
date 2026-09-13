@@ -14,7 +14,10 @@ architectural prototype rather than a gameplay simulation. The presentation
 layer also includes deterministic mouth shapes intended as a future speech-
 animation foundation. Dialogue Director now supports portable recorded voice
 clips, per-player voice metadata, timestamped manual visemes, and procedural 3D
-placeholder audio only when explicitly previewing an unrecorded line.
+placeholder audio only when explicitly previewing an unrecorded line. The first
+optional local TTS pipeline uses an isolated Piper process, prefers NVIDIA CUDA,
+falls back to CPU, writes portable WAV output, and consumes provider phoneme
+timings when available.
 
 ## Repository layout
 
@@ -100,12 +103,21 @@ placeholder audio only when explicitly previewing an unrecorded line.
   generic or timestamped mouth poses, and temporarily applies/restores
   expression and gaze state.
 - `PlayerVoiceProfile` stores Godot-independent voice identity metadata for each
-  roster player. `VoiceAudioReference` stores only a validated project-relative
+  roster player, including an engine-agnostic backend type, model identifier or
+  path, speaker ID, optional reference recording, defaults, style, and emotion.
+  `VoiceAudioReference` stores only a validated project-relative
   asset path and format, while ordered `VisemeEvent` values store start/end
   timestamps, mouth shape, and blend strength without referencing Godot types.
 - `ProjectAudioAssetStore` imports voice files beside the project JSON under
-  `audio/`. `VoiceAudioStreamLoader` is the engine adapter that decodes those
+  `audio/` and creates collision-safe `audio/generated/` WAV destinations.
+  `VoiceAudioStreamLoader` is the engine adapter that decodes those
   portable references using Godot's native WAV, OGG Vorbis, and MP3 support.
+- `ITtsProvider` is a Godot-independent asynchronous provider boundary.
+  `PiperTtsProvider` talks JSON over standard input/output to the optional
+  `tools/tts/piper_service.py` process; neither football/domain code nor Godot
+  nodes import Python. `AutomaticLipSyncGenerator` maps provider phoneme timing
+  first and uses clearly labelled deterministic approximation when timing is
+  unavailable.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for height,
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
   optional accessories. Its Godot-independent `FaceAppearance` value stores
@@ -299,12 +311,23 @@ data receive default Gold and Navy home/away uniforms when loaded.
   the visible dialogue library and cancels transient playback.
 - Under **Voice / Audio**, edit the selected speaker's profile name,
   description, default volume, pitch in semitones, and speaking-rate metadata.
-  Choose **Save Voice** to persist those defaults.
+  The reusable voice-profile selector can choose any roster voice for the
+  selected line. Choose the Piper backend, select an installed `.onnx` model,
+  optionally enter its speaker ID/style/emotion metadata, then choose **Save
+  Voice** to persist the configuration.
+- **Generate Speech** queues an asynchronous local request for an unrecorded
+  line. **Regenerate Speech** explicitly creates a new collision-safe WAV and
+  replaces the line's assignment; it never overwrites the old file. Status
+  reports queued, generating, completed, failed, or cancelled and identifies
+  CUDA versus CPU. **Generate Lip Sync** creates an approximate track for an
+  imported clip; **Regenerate Lip Sync** is the explicit action permitted to
+  replace a manual track.
 - **Import Audio...** opens the operating system's native WAV, OGG, and MP3
   picker, copies the recording into the portable project `audio/` directory,
   and assigns its relative reference to the selected line. The always-visible
   status row shows the imported filename, decoded clip duration, and exactly
-  whether there is no assignment, generic mouth motion, or manual lip sync.
+  whether there is no assignment, generic mouth motion, automatic approximate
+  timing, automatic provider timing, or manual lip sync.
   **Preview Audio** plays the assigned recording; **Remove Audio** removes only
   the assignment and deliberately leaves the imported file available for reuse.
 - Dialogue text never generates speech automatically. **Preview Line** reports
@@ -321,6 +344,26 @@ and playback time are transient and are never serialized. Older JSON without a
 dialogue collection loads with an empty library and default voice profiles.
 Absolute source paths are never serialized. Moving the project JSON together
 with its sibling `audio/` folder preserves all assignments.
+
+### Optional local speech setup
+
+Piper is not installed and no voice model is downloaded automatically. Install
+a supported 64-bit Python with the Windows `py` launcher, then on the target
+Windows RTX machine run:
+
+```powershell
+./tools/tts/setup.ps1 -Runtime Cuda
+```
+
+The script creates `tools/tts/.venv`, installs Piper plus
+`onnxruntime-gpu`, and prints the explicit `piper.download_voices` command for
+placing a chosen voice in the ignored `tools/tts/models/` directory. Use
+`-Runtime Cpu` on a non-NVIDIA machine. In Dialogue Director, select the
+downloaded `.onnx` file; its adjacent `.onnx.json` is required. Generation
+prefers `CUDAExecutionProvider` and retries on CPU if CUDA initialization fails.
+Missing runtime/model/config errors are shown in status rather than triggering a
+download. Generated WAV files are produced only by **Generate Speech** or
+**Regenerate Speech**, never during ordinary playback or final rendering.
 
 Spatial listening follows Godot's active preview `Camera3D`. Player POV moves
 that camera to the stabilized eye mount, while broadcast/free camera previews
@@ -457,6 +500,18 @@ silent unrecorded playback versus explicit preview fallback; generic and manual
 lip-sync modes; simultaneous speakers; camera cuts and Player POV during speech;
 expression/gaze layering; seeking; play association; and project reload.
 
+### Local TTS and automatic lip-sync validation
+
+```powershell
+godot --headless --path . -- --validate-local-tts
+```
+
+This uses a deterministic in-process fake provider—so no model or GPU is needed
+in CI—to validate CUDA preference plus CPU fallback flags, asynchronous provider
+contracts, project-relative collision-safe output, timed phoneme priority,
+approximate imported-audio timing, manual-track protection and explicit
+replacement, JSON round trips, and clear behavior for an unavailable model.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -490,13 +545,18 @@ behind the player, and controller response uses a fixed Input Map deadzone.
 Stabilization does not implement physical head inertia, collision avoidance, or
 a separate first-person animation set.
 
-Dialogue can play imported speech, but recording and external editing happen
-outside the application. There is no TTS, phoneme extraction, automatic
-transcription, time-stretching, waveform display, voice mixing/mastering,
+Dialogue can play imported or locally generated Piper speech, but recording and
+external editing happen outside the application. Piper is optional and must be
+installed/configured by the user; bundled voices and model management are not
+provided. Its alignment output is phoneme-duration timing, not forced alignment
+against recorded performances. Reference-audio, style, emotion, and pitch are
+stored as engine-agnostic profile metadata, but the initial Piper adapter does
+not support cloning/style conditioning and Piper pitch is not independently
+resampled. There is no automatic transcription, time-stretching, waveform display, voice mixing/mastering,
 occlusion, reverb zones, subtitles, or localization pipeline yet. Speaking-rate
 is metadata only; pitch uses Godot's playback pitch control and therefore also
 affects playback speed. Lines without manual events use an explicitly labelled
-generic viseme cycle, not inferred lip sync. Unrecorded lines are silent during
+generic viseme cycle unless automatic approximation was requested. Unrecorded lines are silent during
 normal playback and use a deterministic tone only for explicit preview. Speech
 styles still use simple range multipliers rather than acoustic simulation, and
 expression/gaze restoration returns to the prior visible direction rather than

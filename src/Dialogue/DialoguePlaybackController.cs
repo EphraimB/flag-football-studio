@@ -8,7 +8,7 @@ using Godot;
 
 namespace FlagFootballStudio.Presentation;
 
-public enum LipSyncPlaybackMode { GenericFallback, ManualTimestamped }
+public enum LipSyncPlaybackMode { GenericFallback, AutomaticApproximate, AutomaticTimed, ManualTimestamped }
 
 public partial class DialoguePlaybackController : Node
 {
@@ -120,12 +120,18 @@ public partial class DialoguePlaybackController : Node
         speaker.MouthAudioAnchor.AddChild(source);
         if (source.Stream is not null)
             source.Play((float)seekSeconds);
-        var lipSyncMode = line.HasManualLipSync ? LipSyncPlaybackMode.ManualTimestamped : LipSyncPlaybackMode.GenericFallback;
+        var lipSyncMode = line.LipSyncSource switch
+        {
+            LipSyncSource.Manual => LipSyncPlaybackMode.ManualTimestamped,
+            LipSyncSource.AutomaticTimed => LipSyncPlaybackMode.AutomaticTimed,
+            LipSyncSource.AutomaticApproximate => LipSyncPlaybackMode.AutomaticApproximate,
+            _ => LipSyncPlaybackMode.GenericFallback
+        };
         _activeLines[line.Id] = new ActiveLine(line, speaker, source, lipSyncMode);
         PeakConcurrentLineCount = Math.Max(PeakConcurrentLineCount, ActiveLineCount);
 
         var remaining = line.Duration - seekSeconds;
-        if (line.HasManualLipSync)
+        if (line.HasTimedLipSync)
         {
             await Task.WhenAll(
                 DriveManualTrackAsync(line, speaker, seekSeconds, generation),

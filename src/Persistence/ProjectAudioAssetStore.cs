@@ -30,6 +30,17 @@ public sealed class ProjectAudioAssetStore
         return new VoiceAudioReference(relative, format);
     }
 
+    public VoiceAudioReference CreateGeneratedWaveReference(Guid lineId, Guid requestId)
+    {
+        if (lineId == Guid.Empty || requestId == Guid.Empty)
+            throw new ArgumentException("Line and request IDs are required for generated audio.");
+        var reference = new VoiceAudioReference($"audio/generated/{lineId:N}_{requestId:N}.wav", VoiceAudioFormat.Wav);
+        var path = Resolve(reference);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (File.Exists(path)) throw new IOException("The collision-safe generated audio destination already exists.");
+        return reference;
+    }
+
     public string Resolve(VoiceAudioReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);

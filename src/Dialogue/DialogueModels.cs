@@ -32,7 +32,8 @@ public sealed class DialogueLine
         Guid? gazeTargetPlayerId = null,
         DialoguePoint gazeWorldPoint = default,
         VoiceAudioReference? audioReference = null,
-        IEnumerable<VisemeEvent>? lipSyncEvents = null)
+        IEnumerable<VisemeEvent>? lipSyncEvents = null,
+        LipSyncSource lipSyncSource = LipSyncSource.None)
     {
         if (id == Guid.Empty) throw new ArgumentException("A dialogue line ID is required.", nameof(id));
         if (speakerPlayerId == Guid.Empty) throw new ArgumentException("A speaker is required.", nameof(speakerPlayerId));
@@ -70,6 +71,11 @@ public sealed class DialogueLine
         GazeWorldPoint = gazeWorldPoint;
         AudioReference = audioReference;
         LipSyncEvents = Array.AsReadOnly(events);
+        LipSyncSource = events.Length > 0 && lipSyncSource == LipSyncSource.None
+            ? LipSyncSource.Manual
+            : lipSyncSource;
+        if (events.Length == 0 && LipSyncSource != LipSyncSource.None)
+            throw new ArgumentException("A lip-sync source requires at least one viseme event.", nameof(lipSyncSource));
     }
 
     public Guid Id { get; }
@@ -87,7 +93,9 @@ public sealed class DialogueLine
     public DialoguePoint GazeWorldPoint { get; }
     public VoiceAudioReference? AudioReference { get; }
     public IReadOnlyList<VisemeEvent> LipSyncEvents { get; }
-    public bool HasManualLipSync => LipSyncEvents.Count > 0;
+    public LipSyncSource LipSyncSource { get; }
+    public bool HasManualLipSync => LipSyncSource == LipSyncSource.Manual;
+    public bool HasTimedLipSync => LipSyncEvents.Count > 0;
 }
 
 public sealed class DialogueSequence

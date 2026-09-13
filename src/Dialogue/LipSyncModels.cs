@@ -5,6 +5,7 @@ namespace FlagFootballStudio.Domain;
 
 public enum VoiceAudioFormat { Wav, OggVorbis, Mp3 }
 public enum DialogueViseme { Rest, A, E, I, O, U, Mbp, Fv, L, Wq }
+public enum LipSyncSource { None, AutomaticApproximate, AutomaticTimed, Manual }
 
 public sealed record VoiceAudioReference
 {

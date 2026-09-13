@@ -1,0 +1,2 @@
+piper-tts[alignment]>=1.4,<2
+onnxruntime-gpu>=1.23,<2

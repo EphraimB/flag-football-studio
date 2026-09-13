@@ -4,7 +4,9 @@ using System.Linq;
 using FlagFootballStudio.Domain;
 using FlagFootballStudio.Persistence;
 using FlagFootballStudio.Presentation;
+using FlagFootballStudio.Tts;
 using Godot;
+using System.Threading;
 
 namespace FlagFootballStudio.Studio;
 
@@ -16,6 +18,8 @@ public partial class Main : Node3D
     private readonly JsonProjectFileStore _fileStore = new(new ProjectJsonSerializer());
     private readonly string _projectPath = ProjectSettings.GlobalizePath("user://flag-football-studio/game-project.json");
     private ProjectAudioAssetStore _audioAssetStore = null!;
+    private SpeechGenerationService _speechGeneration = null!;
+    private CancellationTokenSource? _speechCancellation;
     private Game _game = null!;
     private GameProject _project = null!;
     private PlayDefinition _play = null!;
@@ -37,6 +41,8 @@ public partial class Main : Node3D
     {
         _game = Game.CreatePrototype();
         _audioAssetStore = new ProjectAudioAssetStore(_projectPath);
+        _speechGeneration = new SpeechGenerationService(
+            new PiperTtsProvider(ProjectSettings.GlobalizePath("res://")), _audioAssetStore);
         _project = GameProject.CreatePrototype(_game);
         _play = _project.Plays[0];
         _selectedCameraId = _project.Cameras[0].Id;
@@ -99,8 +105,12 @@ public partial class Main : Node3D
         _dialogueDirector.PreviewLineRequested += OnDialoguePreviewRequested;
         _dialogueDirector.PreviewFromTimeRequested += OnDialoguePreviewFromTimeRequested;
         _dialogueDirector.StatusChanged += message => _gameDirector.SetStatus(message);
+        _dialogueDirector.GenerateSpeechRequested += OnGenerateSpeechRequested;
+        _dialogueDirector.GenerateLipSyncRequested += OnGenerateLipSyncRequested;
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-voice-lip-sync"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-local-tts"))
+            CallDeferred(nameof(RunLocalTtsValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-voice-lip-sync"))
             CallDeferred(nameof(RunVoiceLipSyncValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-dialogue-audio"))
             CallDeferred(nameof(RunDialogueAudioValidation));
@@ -118,6 +128,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunLocalTtsValidation()
+    {
+        var validator = new LocalTtsValidator { Name = "LocalTtsValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Local TTS and automatic lip-sync validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunVoiceLipSyncValidation()
@@ -636,6 +663,51 @@ public partial class Main : Node3D
         {
             GD.PushError(exception.ToString());
             _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private async void OnGenerateSpeechRequested(DialogueLine line, PlayerVoiceProfile profile, bool regenerate)
+    {
+        _speechCancellation?.Cancel();
+        _speechCancellation?.Dispose();
+        _speechCancellation = new CancellationTokenSource();
+        try
+        {
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Queued, "Local speech request queued");
+            await System.Threading.Tasks.Task.Yield();
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Generating,
+                "Generating locally (CUDA preferred; CPU fallback enabled)");
+            var outcome = await _speechGeneration.GenerateAsync(line, profile, regenerate, _speechCancellation.Token);
+            _dialogueDirector.ApplyGeneratedLine(outcome.Line);
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Completed,
+                $"Generated {outcome.ProviderResult.Duration:0.00}s WAV on {outcome.ProviderResult.Device}; {outcome.Line.LipSyncSource}");
+        }
+        catch (OperationCanceledException)
+        {
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Cancelled, "Previous local generation cancelled");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Failed, exception.Message);
+        }
+    }
+
+    private void OnGenerateLipSyncRequested(DialogueLine line, bool regenerate)
+    {
+        try
+        {
+            var duration = line.AudioReference is null
+                ? line.Duration
+                : VoiceAudioStreamLoader.Duration(_audioAssetStore, line.AudioReference);
+            var replacement = _speechGeneration.GenerateLipSync(line, duration, regenerate);
+            _dialogueDirector.ApplyGeneratedLine(replacement);
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Completed,
+                $"Lip sync generated: {replacement.LipSyncSource}");
+        }
+        catch (Exception exception)
+        {
+            _dialogueDirector.SetGenerationStatus(TtsGenerationState.Failed, exception.Message);
         }
     }
 
