@@ -34,7 +34,13 @@ public partial class SpeechMouthController : Node
     public void SetShape(SpeechMouthShape shape, float blendSeconds = DefaultBlendSeconds)
     {
         IsCycling = false;
-        SetShapeInternal(shape, blendSeconds);
+        SetShapeInternal(shape, blendSeconds, 1);
+    }
+
+    public void SetWeightedShape(SpeechMouthShape shape, float strength, float blendSeconds = DefaultBlendSeconds)
+    {
+        IsCycling = false;
+        SetShapeInternal(shape, blendSeconds, Mathf.Clamp(strength, 0, 1));
     }
 
     public void SetManualControls(float jawOpen, float width, float lipFullness, float upperLip, float lowerLip)
@@ -53,7 +59,7 @@ public partial class SpeechMouthController : Node
         _cycleIndex = 0;
         _cycleElapsed = 0;
         IsCycling = true;
-        SetShapeInternal(CycleShapes[_cycleIndex], blendSeconds);
+        SetShapeInternal(CycleShapes[_cycleIndex], blendSeconds, 1);
     }
 
     public override void _Process(double delta)
@@ -63,13 +69,13 @@ public partial class SpeechMouthController : Node
         UpdateCycle(frameSeconds);
     }
 
-    private void SetShapeInternal(SpeechMouthShape shape, float blendSeconds)
+    private void SetShapeInternal(SpeechMouthShape shape, float blendSeconds, float strength)
     {
         if (!Enum.IsDefined(shape))
             throw new ArgumentOutOfRangeException(nameof(shape));
         Shape = shape;
         _blendFrom = _basePose;
-        _blendTarget = SpeechMouthPose.For(shape);
+        _blendTarget = SpeechMouthPose.Lerp(SpeechMouthPose.Rest, SpeechMouthPose.For(shape), strength);
         _blendDuration = Mathf.Max(0, blendSeconds);
         _blendElapsed = 0;
         if (_blendDuration == 0)
@@ -102,10 +108,10 @@ public partial class SpeechMouthController : Node
         {
             IsCycling = false;
             CompletedCycleCount++;
-            SetShapeInternal(SpeechMouthShape.Rest, DefaultBlendSeconds);
+            SetShapeInternal(SpeechMouthShape.Rest, DefaultBlendSeconds, 1);
             return;
         }
-        SetShapeInternal(CycleShapes[_cycleIndex], DefaultBlendSeconds);
+        SetShapeInternal(CycleShapes[_cycleIndex], DefaultBlendSeconds, 1);
     }
 
     private void ApplyPose(SpeechMouthPose pose)

@@ -14,6 +14,7 @@ public sealed class GameProject
     private readonly List<UniformDefinition> _uniforms = [];
     private readonly Dictionary<Guid, Guid> _activeUniformIds = [];
     private readonly List<DialogueSequence> _dialogueSequences = [];
+    private readonly Dictionary<Guid, PlayerVoiceProfile> _playerVoiceProfiles = [];
     private readonly ReadOnlyCollection<PlayDefinition> _readOnlyPlays;
     private readonly ReadOnlyCollection<CameraDefinition> _readOnlyCameras;
     private readonly ReadOnlyCollection<CameraCut> _readOnlyCameraCuts;
@@ -21,6 +22,7 @@ public sealed class GameProject
     private readonly ReadOnlyCollection<UniformDefinition> _readOnlyUniforms;
     private readonly ReadOnlyDictionary<Guid, Guid> _readOnlyActiveUniformIds;
     private readonly ReadOnlyCollection<DialogueSequence> _readOnlyDialogueSequences;
+    private readonly ReadOnlyDictionary<Guid, PlayerVoiceProfile> _readOnlyPlayerVoiceProfiles;
 
     public GameProject(Guid id, string name, Team homeTeam, Team awayTeam)
     {
@@ -48,10 +50,17 @@ public sealed class GameProject
         _readOnlyUniforms = _uniforms.AsReadOnly();
         _readOnlyActiveUniformIds = new ReadOnlyDictionary<Guid, Guid>(_activeUniformIds);
         _readOnlyDialogueSequences = _dialogueSequences.AsReadOnly();
+        _readOnlyPlayerVoiceProfiles = new ReadOnlyDictionary<Guid, PlayerVoiceProfile>(_playerVoiceProfiles);
         foreach (var player in HomeTeam.Roster)
+        {
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, true);
+            _playerVoiceProfiles[player.Id] = PlayerVoiceProfile.CreateDefault(player);
+        }
         foreach (var player in AwayTeam.Roster)
+        {
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, false);
+            _playerVoiceProfiles[player.Id] = PlayerVoiceProfile.CreateDefault(player);
+        }
         var homeUniform = UniformDefinition.CreateTeamDefault(HomeTeam, true);
         var awayUniform = UniformDefinition.CreateTeamDefault(AwayTeam, false);
         AddUniform(homeUniform);
@@ -78,6 +87,7 @@ public sealed class GameProject
     public IReadOnlyList<UniformDefinition> Uniforms => _readOnlyUniforms;
     public IReadOnlyDictionary<Guid, Guid> ActiveUniformIds => _readOnlyActiveUniformIds;
     public IReadOnlyList<DialogueSequence> DialogueSequences => _readOnlyDialogueSequences;
+    public IReadOnlyDictionary<Guid, PlayerVoiceProfile> PlayerVoiceProfiles => _readOnlyPlayerVoiceProfiles;
 
     public void SetGameState(
         int homeScore,
@@ -208,6 +218,19 @@ public sealed class GameProject
 
     public IReadOnlyList<DialogueSequence> DialogueForPlay(Guid playId) =>
         _dialogueSequences.Where(sequence => sequence.PlayId == playId).ToArray();
+
+    public PlayerVoiceProfile VoiceProfileFor(Guid playerId) =>
+        _playerVoiceProfiles.TryGetValue(playerId, out var profile)
+            ? profile
+            : throw new KeyNotFoundException("The requested player voice profile is not in this project.");
+
+    public void SetPlayerVoiceProfile(PlayerVoiceProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        var belongsToProject = HomeTeam.Roster.Concat(AwayTeam.Roster).Any(player => player.Id == profile.PlayerId);
+        if (!belongsToProject) throw new ArgumentException("The voice profile player is not in this project.", nameof(profile));
+        _playerVoiceProfiles[profile.PlayerId] = profile;
+    }
 
     public PlayerAppearance AppearanceFor(Guid playerId) =>
         _playerAppearances.TryGetValue(playerId, out var appearance)

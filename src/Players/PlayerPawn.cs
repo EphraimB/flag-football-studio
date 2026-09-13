@@ -24,6 +24,7 @@ public partial class PlayerPawn : Node3D
     public float VerticalGazeDegrees => _rig.VerticalGazeDegrees;
     public float TargetHorizontalGazeDegrees => _rig.TargetHorizontalGazeDegrees;
     public float TargetVerticalGazeDegrees => _rig.TargetVerticalGazeDegrees;
+    public bool HasSceneGazeTarget => _rig.HasSceneGazeTarget;
     public SpeechMouthShape MouthShape => _rig.MouthShape;
     public SpeechMouthPose MouthPose => _rig.MouthPose;
     public bool IsSpeechShapeCycling => _rig.IsSpeechShapeCycling;
@@ -106,6 +107,8 @@ public partial class PlayerPawn : Node3D
     public void ClearGazeTarget() => _rig.ClearGazeTarget();
     public void SetMouthShape(SpeechMouthShape shape, float blendSeconds = SpeechMouthController.DefaultBlendSeconds) =>
         _rig.SetMouthShape(shape, blendSeconds);
+    public void SetMouthShapeWeighted(SpeechMouthShape shape, float strength, float blendSeconds = SpeechMouthController.DefaultBlendSeconds) =>
+        _rig.SetMouthShapeWeighted(shape, strength, blendSeconds);
     public void SetMouthControls(float jawOpen, float width, float lipFullness, float upperLip, float lowerLip) =>
         _rig.SetMouthControls(jawOpen, width, lipFullness, upperLip, lowerLip);
     public void StartSpeechShapeCycle(float holdSeconds = SpeechMouthController.DefaultCycleHoldSeconds) =>

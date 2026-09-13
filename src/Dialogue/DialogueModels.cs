@@ -30,7 +30,9 @@ public sealed class DialogueLine
         DialogueExpression? expression = null,
         DialogueGazeTargetKind gazeTargetKind = DialogueGazeTargetKind.None,
         Guid? gazeTargetPlayerId = null,
-        DialoguePoint gazeWorldPoint = default)
+        DialoguePoint gazeWorldPoint = default,
+        VoiceAudioReference? audioReference = null,
+        IEnumerable<VisemeEvent>? lipSyncEvents = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("A dialogue line ID is required.", nameof(id));
         if (speakerPlayerId == Guid.Empty) throw new ArgumentException("A speaker is required.", nameof(speakerPlayerId));
@@ -41,6 +43,17 @@ public sealed class DialogueLine
         if (!float.IsFinite(audibilityRadius) || audibilityRadius is < 0.5f or > 100) throw new ArgumentOutOfRangeException(nameof(audibilityRadius));
         if (gazeTargetKind == DialogueGazeTargetKind.WorldPoint && !gazeWorldPoint.IsFinite)
             throw new ArgumentException("The gaze world point must be finite.", nameof(gazeWorldPoint));
+        var events = (lipSyncEvents ?? []).ToArray();
+        for (var index = 0; index < events.Length; index++)
+        {
+            var viseme = events[index];
+            if (viseme.StartTime > duration || (viseme.EndTime.HasValue && viseme.EndTime.Value > duration))
+                throw new ArgumentOutOfRangeException(nameof(lipSyncEvents), "Viseme timing must fit inside the dialogue line.");
+            if (index > 0 && viseme.StartTime < events[index - 1].StartTime)
+                throw new ArgumentException("Viseme events must be ordered by start time.", nameof(lipSyncEvents));
+            if (index > 0 && events[index - 1].EndTime.HasValue && viseme.StartTime < events[index - 1].EndTime.GetValueOrDefault())
+                throw new ArgumentException("Viseme events with end times cannot overlap.", nameof(lipSyncEvents));
+        }
 
         Id = id;
         SpeakerPlayerId = speakerPlayerId;
@@ -55,6 +68,8 @@ public sealed class DialogueLine
         GazeTargetKind = gazeTargetKind;
         GazeTargetPlayerId = gazeTargetPlayerId;
         GazeWorldPoint = gazeWorldPoint;
+        AudioReference = audioReference;
+        LipSyncEvents = Array.AsReadOnly(events);
     }
 
     public Guid Id { get; }
@@ -70,6 +85,9 @@ public sealed class DialogueLine
     public DialogueGazeTargetKind GazeTargetKind { get; }
     public Guid? GazeTargetPlayerId { get; }
     public DialoguePoint GazeWorldPoint { get; }
+    public VoiceAudioReference? AudioReference { get; }
+    public IReadOnlyList<VisemeEvent> LipSyncEvents { get; }
+    public bool HasManualLipSync => LipSyncEvents.Count > 0;
 }
 
 public sealed class DialogueSequence

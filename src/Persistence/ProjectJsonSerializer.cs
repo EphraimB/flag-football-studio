@@ -76,6 +76,7 @@ public sealed class ProjectJsonSerializer
         public List<UniformData> Uniforms { get; set; } = [];
         public Dictionary<Guid, Guid> ActiveUniformIds { get; set; } = [];
         public List<DialogueSequenceData> DialogueSequences { get; set; } = [];
+        public List<PlayerVoiceProfileData> PlayerVoiceProfiles { get; set; } = [];
 
         public static GameProjectData FromDomain(GameProject project) => new()
         {
@@ -96,7 +97,8 @@ public sealed class ProjectJsonSerializer
             PlayerAppearances = project.PlayerAppearances.Values.Select(PlayerAppearanceData.FromDomain).ToList(),
             Uniforms = project.Uniforms.Select(UniformData.FromDomain).ToList(),
             ActiveUniformIds = project.ActiveUniformIds.ToDictionary(entry => entry.Key, entry => entry.Value),
-            DialogueSequences = project.DialogueSequences.Select(DialogueSequenceData.FromDomain).ToList()
+            DialogueSequences = project.DialogueSequences.Select(DialogueSequenceData.FromDomain).ToList(),
+            PlayerVoiceProfiles = project.PlayerVoiceProfiles.Values.Select(PlayerVoiceProfileData.FromDomain).ToList()
         };
 
         public GameProject ToDomain()
@@ -107,6 +109,8 @@ public sealed class ProjectJsonSerializer
                 project.SetPlayerAppearance(appearance.ToDomain());
             if (Uniforms.Count > 0)
                 project.ReplaceUniformLibrary(Uniforms.Select(uniform => uniform.ToDomain()), ActiveUniformIds);
+            foreach (var voiceProfile in PlayerVoiceProfiles)
+                project.SetPlayerVoiceProfile(voiceProfile.ToDomain());
             foreach (var play in Plays)
                 project.AddPlay(play.ToDomain());
             foreach (var camera in Cameras)
@@ -117,6 +121,31 @@ public sealed class ProjectJsonSerializer
                 project.AddDialogueSequence(sequence.ToDomain());
             return project;
         }
+    }
+
+    private sealed class PlayerVoiceProfileData
+    {
+        public Guid Id { get; set; }
+        public Guid PlayerId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public float DefaultSpeakingVolume { get; set; } = 1;
+        public float DefaultPitchAdjustment { get; set; }
+        public float DefaultSpeakingRate { get; set; } = 1;
+
+        public static PlayerVoiceProfileData FromDomain(PlayerVoiceProfile profile) => new()
+        {
+            Id = profile.Id,
+            PlayerId = profile.PlayerId,
+            DisplayName = profile.DisplayName,
+            Description = profile.Description,
+            DefaultSpeakingVolume = profile.DefaultSpeakingVolume,
+            DefaultPitchAdjustment = profile.DefaultPitchAdjustment,
+            DefaultSpeakingRate = profile.DefaultSpeakingRate
+        };
+
+        public PlayerVoiceProfile ToDomain() => new(Id, PlayerId, DisplayName, Description,
+            DefaultSpeakingVolume, DefaultPitchAdjustment, DefaultSpeakingRate);
     }
 
     private sealed class DialogueSequenceData
@@ -160,6 +189,8 @@ public sealed class ProjectJsonSerializer
         public DialogueGazeTargetKind GazeTargetKind { get; set; }
         public Guid? GazeTargetPlayerId { get; set; }
         public DialoguePoint GazeWorldPoint { get; set; }
+        public VoiceAudioReferenceData? AudioReference { get; set; }
+        public List<VisemeEventData> LipSyncEvents { get; set; } = [];
 
         public static DialogueLineData FromDomain(DialogueLine line) => new()
         {
@@ -175,13 +206,44 @@ public sealed class ProjectJsonSerializer
             Expression = line.Expression,
             GazeTargetKind = line.GazeTargetKind,
             GazeTargetPlayerId = line.GazeTargetPlayerId,
-            GazeWorldPoint = line.GazeWorldPoint
+            GazeWorldPoint = line.GazeWorldPoint,
+            AudioReference = line.AudioReference is null ? null : VoiceAudioReferenceData.FromDomain(line.AudioReference),
+            LipSyncEvents = line.LipSyncEvents.Select(VisemeEventData.FromDomain).ToList()
         };
 
         public DialogueLine ToDomain() => new(
             Id, SpeakerPlayerId, StartTime, Duration, Text, Volume, SpeechStyle,
             AudibilityRadius, ListenerPlayerId, Expression, GazeTargetKind,
-            GazeTargetPlayerId, GazeWorldPoint);
+            GazeTargetPlayerId, GazeWorldPoint, AudioReference?.ToDomain(),
+            LipSyncEvents.Select(item => item.ToDomain()));
+    }
+
+    private sealed class VoiceAudioReferenceData
+    {
+        public string RelativePath { get; set; } = string.Empty;
+        public VoiceAudioFormat Format { get; set; }
+        public static VoiceAudioReferenceData FromDomain(VoiceAudioReference reference) => new()
+        {
+            RelativePath = reference.RelativePath,
+            Format = reference.Format
+        };
+        public VoiceAudioReference ToDomain() => new(RelativePath, Format);
+    }
+
+    private sealed class VisemeEventData
+    {
+        public double StartTime { get; set; }
+        public double? EndTime { get; set; }
+        public DialogueViseme Viseme { get; set; }
+        public float BlendStrength { get; set; } = 1;
+        public static VisemeEventData FromDomain(VisemeEvent item) => new()
+        {
+            StartTime = item.StartTime,
+            EndTime = item.EndTime,
+            Viseme = item.Viseme,
+            BlendStrength = item.BlendStrength
+        };
+        public VisemeEvent ToDomain() => new(StartTime, EndTime, Viseme, BlendStrength);
     }
 
     private sealed class UniformData

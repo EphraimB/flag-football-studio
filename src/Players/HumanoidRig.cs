@@ -43,6 +43,7 @@ public partial class HumanoidRig : Node3D
     public float EyeSeparation => _eyeRig.EyeSeparation;
     public float EyeSize => _eyeRig.EyeSize;
     public float EyelidClosure => _eyeRig.EyelidClosure;
+    public bool HasSceneGazeTarget => _eyeRig.HasSceneGazeTarget;
     public int HairPieceCount => _hairRig.PieceCount;
     public HairStyle HairStyle => _hairRig.Style;
     public bool HairUsesAccessoryClearance => _hairRig.AccessoryClearanceApplied;
@@ -129,6 +130,8 @@ public partial class HumanoidRig : Node3D
     public void ClearGazeTarget() => _eyeRig.ClearGazeTarget();
     public void SetMouthShape(SpeechMouthShape shape, float blendSeconds = SpeechMouthController.DefaultBlendSeconds) =>
         _mouthController.SetShape(shape, blendSeconds);
+    public void SetMouthShapeWeighted(SpeechMouthShape shape, float strength, float blendSeconds = SpeechMouthController.DefaultBlendSeconds) =>
+        _mouthController.SetWeightedShape(shape, strength, blendSeconds);
     public void SetMouthControls(float jawOpen, float width, float lipFullness, float upperLip, float lowerLip) =>
         _mouthController.SetManualControls(jawOpen, width, lipFullness, upperLip, lowerLip);
     public void StartSpeechShapeCycle(float holdSeconds = SpeechMouthController.DefaultCycleHoldSeconds) =>

@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FlagFootballStudio.Domain;
+using FlagFootballStudio.Persistence;
 using Godot;
 
 namespace FlagFootballStudio.Presentation;
+
+public enum LipSyncPlaybackMode { GenericFallback, ManualTimestamped }
 
 public partial class DialoguePlaybackController : Node
 {
@@ -14,6 +17,8 @@ public partial class DialoguePlaybackController : Node
     private IReadOnlyDictionary<Guid, Node3D> _pawns = new Dictionary<Guid, Node3D>();
     private FootballView _football = null!;
     private Camera3D _listenerCamera = null!;
+    private ProjectAudioAssetStore? _audioAssets;
+    private IReadOnlyDictionary<Guid, PlayerVoiceProfile> _voiceProfiles = new Dictionary<Guid, PlayerVoiceProfile>();
     private int _generation;
 
     public int ActiveLineCount => _activeLines.Count;
@@ -21,12 +26,16 @@ public partial class DialoguePlaybackController : Node
     public Camera3D ListenerCamera => _listenerCamera;
     public Vector3 ListenerPosition => _listenerCamera.GlobalPosition;
 
-    public void Configure(IReadOnlyDictionary<Guid, Node3D> pawns, FootballView football, Camera3D listenerCamera)
+    public void Configure(IReadOnlyDictionary<Guid, Node3D> pawns, FootballView football, Camera3D listenerCamera,
+        ProjectAudioAssetStore? audioAssets = null,
+        IReadOnlyDictionary<Guid, PlayerVoiceProfile>? voiceProfiles = null)
     {
         StopAll();
         _pawns = pawns ?? throw new ArgumentNullException(nameof(pawns));
         _football = football ?? throw new ArgumentNullException(nameof(football));
         _listenerCamera = listenerCamera ?? throw new ArgumentNullException(nameof(listenerCamera));
+        _audioAssets = audioAssets;
+        _voiceProfiles = voiceProfiles ?? new Dictionary<Guid, PlayerVoiceProfile>();
         PeakConcurrentLineCount = 0;
     }
 
@@ -38,7 +47,8 @@ public partial class DialoguePlaybackController : Node
             .Select(line => PlayScheduledLineAsync(line, generation)));
     }
 
-    public Task PreviewLineAsync(DialogueLine line) => PlayLineAsync(line, _generation, true);
+    public Task PreviewLineAsync(DialogueLine line, double seekSeconds = 0) =>
+        PlayLineAsync(line, _generation, true, true, seekSeconds);
 
     public void StopAll()
     {
@@ -56,6 +66,9 @@ public partial class DialoguePlaybackController : Node
 
     public AudioStreamPlayer3D? SourceFor(Guid lineId) =>
         _activeLines.TryGetValue(lineId, out var active) ? active.Source : null;
+
+    public LipSyncPlaybackMode? LipSyncModeFor(Guid lineId) =>
+        _activeLines.TryGetValue(lineId, out var active) ? active.LipSyncMode : null;
 
     public static float StyleRangeMultiplier(SpeechStyle style) => style switch
     {
@@ -88,10 +101,11 @@ public partial class DialoguePlaybackController : Node
     {
         if (line.StartTime > 0)
             await ToSignal(GetTree().CreateTimer(line.StartTime), SceneTreeTimer.SignalName.Timeout);
-        await PlayLineAsync(line, generation, true);
+        await PlayLineAsync(line, generation, true, false, 0);
     }
 
-    private async Task PlayLineAsync(DialogueLine line, int generation, bool honorGeneration)
+    private async Task PlayLineAsync(DialogueLine line, int generation, bool honorGeneration,
+        bool allowPlaceholderTone, double seekSeconds)
     {
         if (honorGeneration && generation != _generation) return;
         if (!_pawns.TryGetValue(line.SpeakerPlayerId, out var node) || node is not PlayerPawn speaker)
@@ -100,20 +114,32 @@ public partial class DialoguePlaybackController : Node
         if (!_speakerSnapshots.ContainsKey(line.SpeakerPlayerId))
             _speakerSnapshots[line.SpeakerPlayerId] = new SpeakerSnapshot(speaker);
 
+        seekSeconds = Math.Clamp(seekSeconds, 0, Math.Max(0, line.Duration - 0.01));
         ApplyPresentation(line, speaker);
-        var source = CreateSource(line);
+        var source = CreateSource(line, allowPlaceholderTone);
         speaker.MouthAudioAnchor.AddChild(source);
-        source.Play();
-        _activeLines[line.Id] = new ActiveLine(line, speaker, source);
+        if (source.Stream is not null)
+            source.Play((float)seekSeconds);
+        var lipSyncMode = line.HasManualLipSync ? LipSyncPlaybackMode.ManualTimestamped : LipSyncPlaybackMode.GenericFallback;
+        _activeLines[line.Id] = new ActiveLine(line, speaker, source, lipSyncMode);
         PeakConcurrentLineCount = Math.Max(PeakConcurrentLineCount, ActiveLineCount);
 
-        var remaining = line.Duration;
-        while (remaining > 0 && (!honorGeneration || generation == _generation))
+        var remaining = line.Duration - seekSeconds;
+        if (line.HasManualLipSync)
         {
-            speaker.StartSpeechShapeCycle(0.11f);
-            var slice = Math.Min(remaining, 1.05);
-            await ToSignal(GetTree().CreateTimer(slice), SceneTreeTimer.SignalName.Timeout);
-            remaining -= slice;
+            await Task.WhenAll(
+                DriveManualTrackAsync(line, speaker, seekSeconds, generation),
+                WaitSeconds(remaining));
+        }
+        else
+        {
+            while (remaining > 0 && (!honorGeneration || generation == _generation))
+            {
+                speaker.StartSpeechShapeCycle(0.11f);
+                var slice = Math.Min(remaining, 1.05);
+                await ToSignal(GetTree().CreateTimer(slice), SceneTreeTimer.SignalName.Timeout);
+                remaining -= slice;
+            }
         }
 
         if (!_activeLines.Remove(line.Id, out var active)) return;
@@ -123,6 +149,27 @@ public partial class DialoguePlaybackController : Node
             _speakerSnapshots.Remove(line.SpeakerPlayerId, out var snapshot))
             snapshot.Restore();
     }
+
+    private async Task DriveManualTrackAsync(DialogueLine line, PlayerPawn speaker, double seekSeconds, int generation)
+    {
+        var cursor = seekSeconds;
+        foreach (var viseme in line.LipSyncEvents)
+        {
+            if (viseme.EndTime.HasValue && viseme.EndTime.Value <= seekSeconds) continue;
+            if (viseme.StartTime > cursor) await WaitSeconds(viseme.StartTime - cursor);
+            if (generation != _generation || !_activeLines.ContainsKey(line.Id)) return;
+            speaker.SetMouthShapeWeighted(MapViseme(viseme.Viseme), viseme.BlendStrength, 0.07f);
+            cursor = Math.Max(cursor, viseme.StartTime);
+            if (!viseme.EndTime.HasValue) continue;
+            if (viseme.EndTime.Value > cursor) await WaitSeconds(viseme.EndTime.Value - cursor);
+            if (generation != _generation || !_activeLines.ContainsKey(line.Id)) return;
+            speaker.SetMouthShape(SpeechMouthShape.Rest, 0.07f);
+            cursor = viseme.EndTime.Value;
+        }
+    }
+
+    private async Task WaitSeconds(double seconds) =>
+        await ToSignal(GetTree().CreateTimer(seconds), SceneTreeTimer.SignalName.Timeout);
 
     private void ApplyPresentation(DialogueLine line, PlayerPawn speaker)
     {
@@ -151,16 +198,38 @@ public partial class DialoguePlaybackController : Node
             speaker.LookAtPlayer(targetPawn);
     }
 
-    private static AudioStreamPlayer3D CreateSource(DialogueLine line) => new()
+    private AudioStreamPlayer3D CreateSource(DialogueLine line, bool allowPlaceholderTone)
     {
-        Name = $"Dialogue_{line.Id:N}",
-        Stream = CreateTone(line.SpeechStyle),
-        VolumeDb = Mathf.LinearToDb(Mathf.Max(line.Volume, 0.001f)),
-        UnitSize = 1,
-        MaxDistance = EffectiveAudibilityRadius(line),
-        AttenuationFilterDb = -18,
-        Autoplay = false
-    };
+        AudioStream? stream = null;
+        if (line.AudioReference is not null && _audioAssets is not null)
+        {
+            try { stream = VoiceAudioStreamLoader.Load(_audioAssets, line.AudioReference); }
+            catch (Exception exception) { GD.PushWarning($"Voice asset unavailable for '{line.Text}': {exception.Message}"); }
+        }
+        else if (line.AudioReference is null && allowPlaceholderTone)
+        {
+            stream = CreateTone(line.SpeechStyle);
+        }
+
+        var profileVolume = 1f;
+        var pitchSemitones = 0f;
+        if (_voiceProfiles.TryGetValue(line.SpeakerPlayerId, out var profile))
+        {
+            profileVolume = profile.DefaultSpeakingVolume;
+            pitchSemitones = profile.DefaultPitchAdjustment;
+        }
+        return new AudioStreamPlayer3D
+        {
+            Name = $"Dialogue_{line.Id:N}",
+            Stream = stream,
+            VolumeDb = Mathf.LinearToDb(Mathf.Max(line.Volume * profileVolume, 0.001f)),
+            PitchScale = Mathf.Pow(2, pitchSemitones / 12f),
+            UnitSize = 1,
+            MaxDistance = EffectiveAudibilityRadius(line),
+            AttenuationFilterDb = -18,
+            Autoplay = false
+        };
+    }
 
     private static AudioStreamWav CreateTone(SpeechStyle style)
     {
@@ -205,7 +274,21 @@ public partial class DialoguePlaybackController : Node
         _ => FacialExpressionState.Neutral
     };
 
-    private sealed record ActiveLine(DialogueLine Line, PlayerPawn Speaker, AudioStreamPlayer3D Source);
+    private static SpeechMouthShape MapViseme(DialogueViseme viseme) => viseme switch
+    {
+        DialogueViseme.A => SpeechMouthShape.A,
+        DialogueViseme.E => SpeechMouthShape.E,
+        DialogueViseme.I => SpeechMouthShape.I,
+        DialogueViseme.O => SpeechMouthShape.O,
+        DialogueViseme.U => SpeechMouthShape.U,
+        DialogueViseme.Mbp => SpeechMouthShape.Mbp,
+        DialogueViseme.Fv => SpeechMouthShape.Fv,
+        DialogueViseme.L => SpeechMouthShape.L,
+        DialogueViseme.Wq => SpeechMouthShape.Wq,
+        _ => SpeechMouthShape.Rest
+    };
+
+    private sealed record ActiveLine(DialogueLine Line, PlayerPawn Speaker, AudioStreamPlayer3D Source, LipSyncPlaybackMode LipSyncMode);
 
     private sealed class SpeakerSnapshot
     {

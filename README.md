@@ -12,8 +12,9 @@ include deterministic low-poly face customization, blended expression previews,
 blinking, gaze control, and reusable procedural hairstyles. It is an
 architectural prototype rather than a gameplay simulation. The presentation
 layer also includes deterministic mouth shapes intended as a future speech-
-animation foundation. The first Dialogue Director adds persisted scripted lines,
-presentation-only speech gestures, and procedural 3D placeholder audio.
+animation foundation. Dialogue Director now supports portable recorded voice
+clips, per-player voice metadata, timestamped manual visemes, and procedural 3D
+placeholder audio only when explicitly previewing an unrecorded line.
 
 ## Repository layout
 
@@ -95,8 +96,16 @@ presentation-only speech gestures, and procedural 3D placeholder audio.
 - `DialogueDirectorPanel` edits sequences and ordered lines.
   `DialoguePlaybackController` is the Godot presentation adapter: it schedules
   overlapping lines, mounts one `AudioStreamPlayer3D` on each speaker's stable
-  head-bone `MouthAudioAnchor`, cycles existing deterministic mouth poses, and
-  temporarily applies/restores expression and gaze state.
+  head-bone `MouthAudioAnchor`, loads WAV, OGG Vorbis, or MP3 speech, drives
+  generic or timestamped mouth poses, and temporarily applies/restores
+  expression and gaze state.
+- `PlayerVoiceProfile` stores Godot-independent voice identity metadata for each
+  roster player. `VoiceAudioReference` stores only a validated project-relative
+  asset path and format, while ordered `VisemeEvent` values store start/end
+  timestamps, mouth shape, and blend strength without referencing Godot types.
+- `ProjectAudioAssetStore` imports voice files beside the project JSON under
+  `audio/`. `VoiceAudioStreamLoader` is the engine adapter that decodes those
+  portable references using Godot's native WAV, OGG Vorbis, and MP3 support.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for height,
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
   optional accessories. Its Godot-independent `FaceAppearance` value stores
@@ -288,11 +297,25 @@ data receive default Gold and Navy home/away uniforms when loaded.
 - **Run Play** schedules all `Play`-context dialogue attached to the active play
   alongside the existing choreography and camera cuts. Switching plays updates
   the visible dialogue library and cancels transient playback.
+- Under **Voice / Audio**, edit the selected speaker's profile name,
+  description, default volume, pitch in semitones, and speaking-rate metadata.
+  Choose **Save Voice** to persist those defaults.
+- **Choose WAV/OGG/MP3** copies a selected recording into the portable project
+  `audio/` directory and assigns its relative reference to the line. The panel
+  shows decoded clip duration and whether the line uses manual/timestamped lip
+  sync or generic fallback motion. **Remove Audio** removes only the assignment;
+  it deliberately leaves the imported file intact so another line can reuse it.
+- The manual lip-sync list supports adding/updating a viseme with a start time,
+  optional end time, and blend strength, selecting and editing existing events,
+  and deleting events. **Preview From Time** seeks the real audio and evaluates
+  the timestamped mouth track from that position.
 
 Dialogue metadata, including text and ordered line timing, is saved in the
 existing project JSON. Audio sources, current mouth pose, live expression/gaze,
 and playback time are transient and are never serialized. Older JSON without a
-dialogue collection loads with an empty library.
+dialogue collection loads with an empty library and default voice profiles.
+Absolute source paths are never serialized. Moving the project JSON together
+with its sibling `audio/` folder preserves all assignments.
 
 Spatial listening follows Godot's active preview `Camera3D`. Player POV moves
 that camera to the stabilized eye mount, while broadcast/free camera previews
@@ -415,6 +438,20 @@ overlapping lines, whisper/shout ranges, mouth-anchor source attachment,
 camera-relative listener movement for Player POV and broadcast positions,
 speech-mouth cycling, expression/gaze application, and presentation restoration.
 
+### Voice audio and lip-sync validation
+
+Run the focused recorded-voice validation with:
+
+```powershell
+godot --headless --path . -- --validate-voice-lip-sync
+```
+
+It validates voice-profile, relative-audio-reference, and timestamped-viseme
+JSON round trips; ordering, bounds, and overlap rejection; real WAV decoding;
+silent unrecorded playback versus explicit preview fallback; generic and manual
+lip-sync modes; simultaneous speakers; camera cuts and Player POV during speech;
+expression/gaze layering; seeking; play association; and project reload.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -448,10 +485,14 @@ behind the player, and controller response uses a fixed Input Map deadzone.
 Stabilization does not implement physical head inertia, collision avoidance, or
 a separate first-person animation set.
 
-Dialogue currently uses a quiet deterministic looping tone to prove scheduling
-and spatialization; it does not speak the saved text. There is no recorded voice,
-TTS, phoneme extraction, true lip sync, voice mixing/mastering, occlusion,
-reverb zones, subtitles, or language/localization pipeline yet. Speech styles
-use simple range multipliers rather than acoustic simulation, mouth motion cycles
-generic visemes, and expression/gaze restoration returns to the prior visible
-direction rather than resuming a formerly tracked moving gaze target.
+Dialogue can play imported speech, but recording and external editing happen
+outside the application. There is no TTS, phoneme extraction, automatic
+transcription, time-stretching, waveform display, voice mixing/mastering,
+occlusion, reverb zones, subtitles, or localization pipeline yet. Speaking-rate
+is metadata only; pitch uses Godot's playback pitch control and therefore also
+affects playback speed. Lines without manual events use an explicitly labelled
+generic viseme cycle, not inferred lip sync. Unrecorded lines are silent during
+normal playback and use a deterministic tone only for explicit preview. Speech
+styles still use simple range multipliers rather than acoustic simulation, and
+expression/gaze restoration returns to the prior visible direction rather than
+resuming a formerly tracked moving gaze target.

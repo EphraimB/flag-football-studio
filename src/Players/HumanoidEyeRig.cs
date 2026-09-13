@@ -58,6 +58,7 @@ public partial class HumanoidEyeRig : Node3D
     public float EyelidClosure { get; private set; }
     public float EyeSeparation { get; private set; }
     public float EyeSize => _eyeSize;
+    public bool HasSceneGazeTarget => _targetNode is not null || _hasWorldTarget;
 
     public override void _Ready()
     {

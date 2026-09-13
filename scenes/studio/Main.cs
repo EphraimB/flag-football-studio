@@ -15,6 +15,7 @@ public partial class Main : Node3D
     private readonly PackedScene _playerScene = GD.Load<PackedScene>("res://scenes/characters/player_pawn.tscn");
     private readonly JsonProjectFileStore _fileStore = new(new ProjectJsonSerializer());
     private readonly string _projectPath = ProjectSettings.GlobalizePath("user://flag-football-studio/game-project.json");
+    private ProjectAudioAssetStore _audioAssetStore = null!;
     private Game _game = null!;
     private GameProject _project = null!;
     private PlayDefinition _play = null!;
@@ -35,6 +36,7 @@ public partial class Main : Node3D
     public override void _Ready()
     {
         _game = Game.CreatePrototype();
+        _audioAssetStore = new ProjectAudioAssetStore(_projectPath);
         _project = GameProject.CreatePrototype(_game);
         _play = _project.Plays[0];
         _selectedCameraId = _project.Cameras[0].Id;
@@ -59,7 +61,7 @@ public partial class Main : Node3D
 
         _dialogueController = new DialoguePlaybackController { Name = "DialoguePlaybackController" };
         AddChild(_dialogueController);
-        _dialogueController.Configure(_pawns, _football, _previewCamera);
+        _dialogueController.Configure(_pawns, _football, _previewCamera, _audioAssetStore, _project.PlayerVoiceProfiles);
 
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
@@ -95,9 +97,12 @@ public partial class Main : Node3D
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
         _dialogueDirector.PreviewLineRequested += OnDialoguePreviewRequested;
+        _dialogueDirector.PreviewFromTimeRequested += OnDialoguePreviewFromTimeRequested;
         _dialogueDirector.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-dialogue-audio"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-voice-lip-sync"))
+            CallDeferred(nameof(RunVoiceLipSyncValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-dialogue-audio"))
             CallDeferred(nameof(RunDialogueAudioValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-pov-free-look"))
             CallDeferred(nameof(RunPovFreeLookValidation));
@@ -113,6 +118,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunVoiceLipSyncValidation()
+    {
+        var validator = new VoiceLipSyncValidator { Name = "VoiceLipSyncValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Voice audio and lip-sync validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunDialogueAudioValidation()
@@ -358,7 +380,7 @@ public partial class Main : Node3D
             OffsetBottom = 420
         };
         canvas.AddChild(_dialogueDirector);
-        _dialogueDirector.Configure(_project, _play);
+        _dialogueDirector.Configure(_project, _play, _audioAssetStore);
 
         _director = new PlayDirectorPanel
         {
@@ -581,7 +603,7 @@ public partial class Main : Node3D
         ApplyFormation();
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
         _cameraController.Configure(_previewCamera, this, _pawns, _football);
-        _dialogueController.Configure(_pawns, _football, _previewCamera);
+        _dialogueController.Configure(_pawns, _football, _previewCamera, _audioAssetStore, _project.PlayerVoiceProfiles);
         PreviewSelectedCamera();
     }
 
@@ -592,6 +614,22 @@ public partial class Main : Node3D
             _dialogueController.StopAll();
             _gameDirector.SetStatus($"Previewing: {line.Text}");
             await _dialogueController.PreviewLineAsync(line);
+            _gameDirector.SetStatus("Dialogue preview complete");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private async void OnDialoguePreviewFromTimeRequested(DialogueLine line, double seekSeconds)
+    {
+        try
+        {
+            _dialogueController.StopAll();
+            _gameDirector.SetStatus($"Previewing from {seekSeconds:0.00}s");
+            await _dialogueController.PreviewLineAsync(line, seekSeconds);
             _gameDirector.SetStatus("Dialogue preview complete");
         }
         catch (Exception exception)
