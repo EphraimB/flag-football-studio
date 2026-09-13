@@ -31,6 +31,9 @@ public partial class HumanoidRig : Node3D
     public Node3D EyeAnchor => _eyeAnchor;
     public Node3D CatchAnchor => _catchAnchor;
     public Node3D MouthAudioAnchor => _mouthAudioAnchor;
+    public Node3D HeadAnchor => _attachments[HumanoidSkeletonDefinition.Head];
+    public Node3D ChestAnchor => _attachments[HumanoidSkeletonDefinition.Chest];
+    public Node3D ShoulderAnchor => _attachments[HumanoidSkeletonDefinition.RightUpperArm];
     public HumanoidAnimationState AnimationState => _animator.State;
     public FacialExpressionState FacialExpression => _facialController.Expression;
     public FacialExpressionPose FacialPose => _facialController.CurrentPose;

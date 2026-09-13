@@ -59,6 +59,7 @@ public partial class Main : Node3D
         _cameraController = new CameraDirectorController { Name = "CameraDirectorController" };
         AddChild(_cameraController);
         _cameraController.Configure(_previewCamera, this, _pawns, _football);
+        _cameraController.SidelineSettingsChanged += (_, _) => _cameraDirector.RefreshAll();
         PreviewSelectedCamera();
 
         _sequence = new PlaySequenceController { Name = "PlaySequenceController" };
@@ -89,6 +90,7 @@ public partial class Main : Node3D
         _cameraDirector.FreeCameraChanged += OnFreeCameraChanged;
         _cameraDirector.PlayerPovChanged += OnPlayerPovChanged;
         _cameraDirector.PlayerPovSettingsChanged += OnPlayerPovSettingsChanged;
+        _cameraDirector.SidelineSettingsChanged += OnSidelineSettingsChanged;
         _cameraDirector.PlayerPovRecenterRequested += OnPlayerPovRecenterRequested;
         _cameraDirector.PreviewRequested += OnCameraPreviewRequested;
         _cameraDirector.AddCutRequested += OnAddCameraCutRequested;
@@ -111,7 +113,9 @@ public partial class Main : Node3D
         _dialogueDirector.RawAudioTestRequested += OnRawAudioTestRequested;
         _dialogueDirector.SpatialAudioTestRequested += OnSpatialAudioTestRequested;
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-local-tts"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
+            CallDeferred(nameof(RunCameraProfileValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-local-tts"))
             CallDeferred(nameof(RunLocalTtsValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-voice-lip-sync"))
             CallDeferred(nameof(RunVoiceLipSyncValidation));
@@ -131,6 +135,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunCameraProfileValidation()
+    {
+        var validator = new CameraProfileValidator { Name = "CameraProfileValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Action and sideline camera profile validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunLocalTtsValidation()
@@ -838,6 +859,21 @@ public partial class Main : Node3D
             camera.SetPlayerPovSettings(settings);
             if (cameraId == _selectedCameraId)
                 _cameraController.Preview(camera, _play, enteringFreeLook);
+        }
+        catch (Exception exception)
+        {
+            _cameraDirector.RefreshAll();
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnSidelineSettingsChanged(Guid cameraId, SidelineCameraSettings settings)
+    {
+        try
+        {
+            _project.Camera(cameraId).SetSidelineSettings(settings);
+            if (cameraId == _selectedCameraId)
+                _cameraController.Preview(_project.Camera(cameraId), _play);
         }
         catch (Exception exception)
         {

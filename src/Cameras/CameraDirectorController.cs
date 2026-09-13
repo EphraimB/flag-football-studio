@@ -36,6 +36,11 @@ public partial class CameraDirectorController : Node
     private bool _povMountInitialized;
     private bool _configured;
     private int _cutGeneration;
+    private CameraDefinition? _activeDefinition;
+    private PlayDefinition? _activePlay;
+    private float _currentSidelineFocalLength;
+
+    public event Action<Guid, SidelineCameraSettings>? SidelineSettingsChanged;
 
     public bool IsPlayerPovActive => _povAnchor is not null;
     public Guid? ActivePovPlayerId => _povPawn?.Player?.Id;
@@ -47,6 +52,8 @@ public partial class CameraDirectorController : Node
     public float PovTrackingError => _povAnchor is null || _povMount is null
         ? 0
         : _povAnchor.GlobalPosition.DistanceTo(_povMount.GlobalPosition);
+    public bool IsSidelineActive => _activeDefinition?.Type == CameraType.SidelineLow;
+    public float ActiveFocalLengthMm => _currentSidelineFocalLength;
 
     public void Configure(
         Camera3D camera,
@@ -71,10 +78,19 @@ public partial class CameraDirectorController : Node
     {
         UpdatePlayerPovMount((float)delta);
         UpdatePlayerPovView((float)delta);
+        UpdateSidelineCamera((float)delta);
     }
 
     public override void _UnhandledInput(InputEvent inputEvent)
     {
+        if (IsSidelineActive && inputEvent is InputEventMouseButton { Pressed: true } wheel &&
+            wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+        {
+            var direction = wheel.ButtonIndex == MouseButton.WheelUp ? 1 : -1;
+            AdjustSidelineZoom(direction);
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (!IsPlayerPovActive || _povSettings.Mode != PlayerPovMode.FreeLook)
             return;
 
@@ -125,6 +141,8 @@ public partial class CameraDirectorController : Node
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(play);
         var focus = FormationCenter(play);
+        _activeDefinition = definition;
+        _activePlay = play;
 
         if (definition.Type != CameraType.PlayerPov)
             DeactivatePlayerPov();
@@ -135,7 +153,7 @@ public partial class CameraDirectorController : Node
                 PlacePreset(focus + new Vector3(15, 18, 22), focus, 52);
                 break;
             case CameraType.SidelineLow:
-                PlacePreset(new Vector3(-13, 3.2f, focus.Z), focus + new Vector3(0, 1.2f, 0), 58);
+                PlaceSideline(definition, focus);
                 break;
             case CameraType.EndZone:
                 PlacePreset(new Vector3(focus.X, 8.5f, -22), focus + new Vector3(0, 1, 3), 55);
@@ -201,11 +219,12 @@ public partial class CameraDirectorController : Node
         }
         _activePovCameraId = definition.Id;
         _povPawn = playerPawn;
-        _povAnchor = playerPawn?.EyeAnchor ?? pawn;
+        _povAnchor = playerPawn is null ? pawn : AnchorFor(playerPawn, _povSettings.Mount);
         _povPawn?.SetFirstPersonView(true);
         _camera.CullMask = _normalCullMask & ~HumanoidRig.FirstPersonHeadLayerMask;
         _camera.Near = _povSettings.NearClip;
-        _camera.Fov = 75;
+        _camera.KeepAspect = Camera3D.KeepAspectEnum.Height;
+        _camera.Fov = EffectivePovVerticalFov(_povSettings);
 
         if (_povMount is null || !GodotObject.IsInstanceValid(_povMount))
         {
@@ -214,7 +233,7 @@ public partial class CameraDirectorController : Node
         }
         if (_camera.GetParent() != _povMount)
             _camera.Reparent(_povMount, false);
-        _camera.Position = new Vector3(0, -0.01f, -_povSettings.ForwardOffset);
+        _camera.Position = MountOffset(_povSettings);
         _neutralPovTransform = CurrentAnchorTransform();
         _povMountInitialized = false;
         UpdatePlayerPovMount(0);
@@ -244,6 +263,9 @@ public partial class CameraDirectorController : Node
         var targetRotation = _neutralPovTransform.Basis.GetRotationQuaternion()
             .Slerp(currentAnchor.Basis.GetRotationQuaternion(), bob)
             .Normalized();
+        var targetEuler = targetRotation.GetEuler();
+        targetEuler.Z *= 1 - _povSettings.HorizonLeveling;
+        targetRotation = Basis.FromEuler(targetEuler).GetRotationQuaternion();
         var target = new Transform3D(new Basis(targetRotation), targetOrigin);
         if (!_povMountInitialized || delta <= 0)
         {
@@ -252,7 +274,8 @@ public partial class CameraDirectorController : Node
             return;
         }
 
-        var followRate = Mathf.Lerp(30f, 5f, _povSettings.StabilizationStrength);
+        var combinedSmoothing = Mathf.Clamp((_povSettings.StabilizationStrength + _povSettings.MotionSmoothing) * 0.5f, 0, 1);
+        var followRate = Mathf.Lerp(30f, 5f, combinedSmoothing);
         var weight = 1 - Mathf.Exp(-followRate * delta);
         var origin = _povMount.Position.Lerp(target.Origin, weight);
         var rotation = _povMount.Quaternion.Slerp(target.Basis.GetRotationQuaternion(), weight).Normalized();
@@ -412,6 +435,126 @@ public partial class CameraDirectorController : Node
         _freeLookPitch = 0;
         _recentering = false;
         _povMountInitialized = false;
+    }
+
+    private void PlaceSideline(CameraDefinition definition, Vector3 focus)
+    {
+        EnsureCameraHome();
+        var settings = definition.SidelineSettings;
+        _currentSidelineFocalLength = settings.FocalLengthMm;
+        var side = settings.Side == SidelineSide.Left ? -1f : 1f;
+        _camera.Position = new Vector3(side * (10 + settings.SidelineDistance), settings.CameraHeight, 0);
+        _camera.KeepAspect = Camera3D.KeepAspectEnum.Height;
+        ApplySidelineFov(_currentSidelineFocalLength);
+        var target = focus + ToGodot(settings.FramingOffset);
+        AimSideline(target, settings, 1);
+    }
+
+    private void UpdateSidelineCamera(float delta)
+    {
+        if (!IsSidelineActive || _activeDefinition is null || _activePlay is null)
+            return;
+        var settings = _activeDefinition.SidelineSettings;
+        if (TryResolveSidelineTarget(settings, out var target))
+        {
+            target += ToGodot(settings.FramingOffset);
+            var weight = settings.TrackingStrength <= 0
+                ? 0
+                : 1 - Mathf.Exp(-Mathf.Lerp(1.5f, 14f, settings.TrackingStrength) * delta);
+            AimSideline(target, settings, weight);
+            if (settings.AutoZoom)
+            {
+                var distance = _camera.GlobalPosition.DistanceTo(target);
+                var desired = Mathf.Clamp(50f * settings.TargetScreenSize * distance / 12f,
+                    settings.MinimumFocalLengthMm, settings.MaximumFocalLengthMm);
+                _currentSidelineFocalLength = Mathf.MoveToward(_currentSidelineFocalLength, desired,
+                    settings.ZoomSpeed * delta);
+                ApplySidelineFov(_currentSidelineFocalLength);
+            }
+        }
+    }
+
+    private bool TryResolveSidelineTarget(SidelineCameraSettings settings, out Vector3 target)
+    {
+        switch (settings.Behavior)
+        {
+            case CameraBehaviorPreset.TrackPlayer when settings.TargetPlayerId.HasValue &&
+                                                       _pawns.TryGetValue(settings.TargetPlayerId.Value, out var player):
+                target = player.GlobalPosition + Vector3.Up;
+                return true;
+            case CameraBehaviorPreset.TrackFootball when _football is not null:
+                target = _football.GlobalPosition;
+                return true;
+            case CameraBehaviorPreset.FollowPlayCenter:
+                var points = _pawns.Values.Select(node => node.GlobalPosition).ToArray();
+                target = points.Length == 0 ? FormationCenter(_activePlay!) : points.Aggregate(Vector3.Zero, (sum, point) => sum + point) / points.Length;
+                return true;
+            default:
+                target = default;
+                return false;
+        }
+    }
+
+    private void AimSideline(Vector3 target, SidelineCameraSettings settings, float weight)
+    {
+        var look = new Transform3D(Basis.Identity, _camera.GlobalPosition).LookingAt(target, Vector3.Up);
+        var offset = Basis.FromEuler(new Vector3(Mathf.DegToRad(settings.TiltDegrees), Mathf.DegToRad(settings.PanDegrees), 0));
+        var desired = (look.Basis * offset).GetRotationQuaternion();
+        _camera.Quaternion = _camera.Quaternion.Slerp(desired, Mathf.Clamp(weight, 0, 1)).Normalized();
+    }
+
+    private void ApplySidelineFov(float focalLengthMm) =>
+        _camera.Fov = SidelineCameraSettings.FovForSensor(24, focalLengthMm);
+
+    private void AdjustSidelineZoom(int direction)
+    {
+        if (_activeDefinition is null) return;
+        var settings = _activeDefinition.SidelineSettings;
+        var focal = Mathf.Clamp(settings.FocalLengthMm + direction * settings.ZoomSpeed,
+            settings.MinimumFocalLengthMm, settings.MaximumFocalLengthMm);
+        settings = settings with { FocalLengthMm = focal };
+        _activeDefinition.SetSidelineSettings(settings);
+        _currentSidelineFocalLength = focal;
+        ApplySidelineFov(focal);
+        SidelineSettingsChanged?.Invoke(_activeDefinition.Id, settings);
+    }
+
+    public void ResetSidelineZoom()
+    {
+        if (_activeDefinition?.Type != CameraType.SidelineLow) return;
+        var settings = _activeDefinition.SidelineSettings with { FocalLengthMm = SidelineCameraSettings.Default.FocalLengthMm };
+        _activeDefinition.SetSidelineSettings(settings);
+        _currentSidelineFocalLength = _activeDefinition.SidelineSettings.FocalLengthMm;
+        ApplySidelineFov(_currentSidelineFocalLength);
+        SidelineSettingsChanged?.Invoke(_activeDefinition.Id, _activeDefinition.SidelineSettings);
+    }
+
+    private static Node3D AnchorFor(PlayerPawn pawn, PlayerPovMount mount) => mount switch
+    {
+        PlayerPovMount.Forehead => pawn.HeadAnchor,
+        PlayerPovMount.Chest => pawn.ChestAnchor,
+        PlayerPovMount.Shoulder => pawn.ShoulderAnchor,
+        _ => pawn.EyeAnchor
+    };
+
+    private static Vector3 MountOffset(PlayerPovSettings settings)
+    {
+        var baseOffset = settings.Mount switch
+        {
+            PlayerPovMount.Forehead => new Vector3(0, 0.28f, -0.24f),
+            PlayerPovMount.Chest => new Vector3(0, 0.12f, -0.3f),
+            PlayerPovMount.Shoulder => new Vector3(0.08f, 0.02f, -0.13f),
+            _ => new Vector3(0, -0.01f, 0)
+        };
+        return baseOffset + new Vector3(0, settings.UpOffset, -settings.ForwardOffset);
+    }
+
+    public static float EffectivePovVerticalFov(PlayerPovSettings settings)
+    {
+        var expansion = settings.LensPreset == PlayerPovLensPreset.GoProSuperView
+            ? settings.DistortionStrength * 10f
+            : settings.DistortionStrength * 4f;
+        return Mathf.Clamp(settings.VerticalFieldOfView + expansion, 30, 120);
     }
 
     private static Vector3 FormationCenter(PlayDefinition play)

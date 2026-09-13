@@ -35,6 +35,33 @@ public partial class CameraDirectorPanel : PanelContainer
     private SpinBox _pitchOffset = null!;
     private SpinBox _forwardOffset = null!;
     private SpinBox _nearClip = null!;
+    private SpinBox _povHorizontalFov = null!;
+    private SpinBox _povVerticalFov = null!;
+    private OptionButton _povLens = null!;
+    private OptionButton _povMount = null!;
+    private SpinBox _distortion = null!;
+    private SpinBox _horizonLevel = null!;
+    private SpinBox _upOffset = null!;
+    private SpinBox _motionSmoothing = null!;
+    private VBoxContainer _povSection = null!;
+    private VBoxContainer _sidelineSection = null!;
+    private VBoxContainer _freeSection = null!;
+    private OptionButton _sidelineBehavior = null!;
+    private OptionButton _sidelineSide = null!;
+    private OptionButton _sidelineTarget = null!;
+    private SpinBox _sidelineHeight = null!;
+    private SpinBox _sidelineDistance = null!;
+    private SpinBox _sidelineFocal = null!;
+    private SpinBox _sidelineMinFocal = null!;
+    private SpinBox _sidelineMaxFocal = null!;
+    private SpinBox _sidelineZoomSpeed = null!;
+    private SpinBox _sidelinePan = null!;
+    private SpinBox _sidelineTilt = null!;
+    private SpinBox _sidelineTracking = null!;
+    private readonly SpinBox[] _sidelineFraming = new SpinBox[3];
+    private CheckButton _sidelineAutoZoom = null!;
+    private SpinBox _sidelineTargetSize = null!;
+    private Label _sidelineFovDisplay = null!;
     private Button _recenterButton = null!;
     private SpinBox _fov = null!;
     private SpinBox _cutTime = null!;
@@ -48,6 +75,7 @@ public partial class CameraDirectorPanel : PanelContainer
     public event Action<Guid, CameraVector, CameraVector, float>? FreeCameraChanged;
     public event Action<Guid, Guid?>? PlayerPovChanged;
     public event Action<Guid, PlayerPovSettings>? PlayerPovSettingsChanged;
+    public event Action<Guid, SidelineCameraSettings>? SidelineSettingsChanged;
     public event Action<Guid>? PlayerPovRecenterRequested;
     public event Action<Guid>? PreviewRequested;
     public event Action<Guid, double>? AddCutRequested;
@@ -161,6 +189,7 @@ public partial class CameraDirectorPanel : PanelContainer
         AddButton(cameraActions, "Rename", RequestRename);
         AddButton(cameraActions, "Duplicate", RequestDuplicate);
         AddButton(cameraActions, "Delete", RequestDelete);
+        AddButton(cameraActions, "Preview", RequestPreview);
 
         var typeRow = new HBoxContainer();
         stack.AddChild(typeRow);
@@ -171,15 +200,18 @@ public partial class CameraDirectorPanel : PanelContainer
         _typeOption.ItemSelected += OnTypeSelected;
         typeRow.AddChild(_typeOption);
 
+        _povSection = new VBoxContainer();
+        _povSection.AddChild(new Label { Text = "ACTION CAMERA / PLAYER POV" });
+        stack.AddChild(_povSection);
         var playerRow = new HBoxContainer();
-        stack.AddChild(playerRow);
+        _povSection.AddChild(playerRow);
         playerRow.AddChild(new Label { Text = "POV Player", CustomMinimumSize = new Vector2(68, 0) });
         _playerOption = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _playerOption.ItemSelected += OnPlayerSelected;
         playerRow.AddChild(_playerOption);
 
         var povModeRow = new HBoxContainer();
-        stack.AddChild(povModeRow);
+        _povSection.AddChild(povModeRow);
         povModeRow.AddChild(new Label { Text = "POV Mode", CustomMinimumSize = new Vector2(68, 0) });
         _povModeOption = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         foreach (var mode in Enum.GetValues<PlayerPovMode>())
@@ -189,7 +221,7 @@ public partial class CameraDirectorPanel : PanelContainer
         _recenterButton = AddButton(povModeRow, "Recenter", RequestPovRecenter);
 
         var povSettings = new GridContainer { Columns = 4 };
-        stack.AddChild(povSettings);
+        _povSection.AddChild(povSettings);
         _mouseSensitivity = AddPovField(povSettings, "Mouse", 0.01, 1, 0.01);
         _controllerSensitivity = AddPovField(povSettings, "Controller", 10, 360, 5);
         _stabilization = AddPovField(povSettings, "Stabilize", 0, 1, 0.05);
@@ -197,9 +229,28 @@ public partial class CameraDirectorPanel : PanelContainer
         _pitchOffset = AddPovField(povSettings, "Pitch", -30, 30, 1);
         _forwardOffset = AddPovField(povSettings, "Forward", 0, 0.25, 0.005);
         _nearClip = AddPovField(povSettings, "Near clip", 0.005, 0.2, 0.005);
+        _povHorizontalFov = AddPovField(povSettings, "Horizontal FOV", 40, 150, 1);
+        _povVerticalFov = AddPovField(povSettings, "Vertical FOV", 30, 120, 1);
+        _distortion = AddPovField(povSettings, "Distortion", 0, 1, 0.05);
+        _horizonLevel = AddPovField(povSettings, "Horizon", 0, 1, 0.05);
+        _upOffset = AddPovField(povSettings, "Up offset", -0.25, 0.4, 0.01);
+        _motionSmoothing = AddPovField(povSettings, "Motion smooth", 0, 1, 0.05);
+
+        var lensRow = new HBoxContainer();
+        _povSection.AddChild(lensRow);
+        lensRow.AddChild(new Label { Text = "Lens", CustomMinimumSize = new Vector2(68, 0) });
+        _povLens = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        foreach (var preset in Enum.GetValues<PlayerPovLensPreset>())
+            _povLens.AddItem(LensName(preset), (int)preset);
+        _povLens.ItemSelected += OnPovLensSelected;
+        lensRow.AddChild(_povLens);
+        lensRow.AddChild(new Label { Text = "Mount" });
+        _povMount = EnumOption<PlayerPovMount>();
+        _povMount.ItemSelected += OnPovSettingsValueChanged;
+        lensRow.AddChild(_povMount);
 
         var targetRow = new HBoxContainer();
-        stack.AddChild(targetRow);
+        _povSection.AddChild(targetRow);
         targetRow.AddChild(new Label { Text = "Look At", CustomMinimumSize = new Vector2(68, 0) });
         _povTargetKindOption = new OptionButton { CustomMinimumSize = new Vector2(105, 0) };
         foreach (var kind in Enum.GetValues<PlayerPovTargetKind>())
@@ -210,13 +261,18 @@ public partial class CameraDirectorPanel : PanelContainer
         _povTargetPlayerOption.ItemSelected += OnPovSettingsValueChanged;
         targetRow.AddChild(_povTargetPlayerOption);
 
-        BuildPovTargetRow(stack);
+        BuildPovTargetRow(_povSection);
 
-        BuildVectorRow(stack, "Position", _position, -50, 50);
-        BuildVectorRow(stack, "Rotation", _rotation, -360, 360);
+        BuildSidelineSection(stack);
+
+        _freeSection = new VBoxContainer();
+        _freeSection.AddChild(new Label { Text = "FREE CAMERA" });
+        stack.AddChild(_freeSection);
+        BuildVectorRow(_freeSection, "Position", _position, -50, 50);
+        BuildVectorRow(_freeSection, "Rotation", _rotation, -360, 360);
 
         var fovRow = new HBoxContainer();
-        stack.AddChild(fovRow);
+        _freeSection.AddChild(fovRow);
         fovRow.AddChild(new Label { Text = "FOV", CustomMinimumSize = new Vector2(68, 0) });
         _fov = CreateSpinBox(10, 120);
         _fov.ValueChanged += OnFreeValueChanged;
@@ -276,6 +332,57 @@ public partial class CameraDirectorPanel : PanelContainer
         }
     }
 
+    private void BuildSidelineSection(Node parent)
+    {
+        _sidelineSection = new VBoxContainer();
+        _sidelineSection.AddChild(new Label { Text = "SIDELINE SPORTS CAMERA" });
+        parent.AddChild(_sidelineSection);
+        var options = new GridContainer { Columns = 4 };
+        _sidelineSection.AddChild(options);
+        _sidelineBehavior = EnumOption<CameraBehaviorPreset>(); AddField(options, "Behavior", _sidelineBehavior);
+        _sidelineSide = EnumOption<SidelineSide>(); AddField(options, "Side", _sidelineSide);
+        _sidelineTarget = new OptionButton(); AddField(options, "Target", _sidelineTarget);
+        _sidelineHeight = AddSidelineField(options, "Height", 0.5, 15, 0.1);
+        _sidelineDistance = AddSidelineField(options, "Distance", 0.5, 20, 0.1);
+        _sidelineFocal = AddSidelineField(options, "Focal mm", 10, 400, 1);
+        _sidelineMinFocal = AddSidelineField(options, "Min mm", 10, 300, 1);
+        _sidelineMaxFocal = AddSidelineField(options, "Max mm", 10, 400, 1);
+        _sidelineZoomSpeed = AddSidelineField(options, "Zoom speed", 1, 100, 1);
+        _sidelinePan = AddSidelineField(options, "Pan", -180, 180, 1);
+        _sidelineTilt = AddSidelineField(options, "Tilt", -80, 80, 1);
+        _sidelineTracking = AddSidelineField(options, "Tracking", 0, 1, 0.05);
+        _sidelineTargetSize = AddSidelineField(options, "Target size", 0.1, 0.9, 0.05);
+        _sidelineBehavior.ItemSelected += OnSidelineValueChanged;
+        _sidelineSide.ItemSelected += OnSidelineValueChanged;
+        _sidelineTarget.ItemSelected += OnSidelineValueChanged;
+        _sidelineAutoZoom = new CheckButton { Text = "Auto zoom" };
+        _sidelineAutoZoom.Toggled += _ => RequestSidelineSettingsChange();
+        options.AddChild(_sidelineAutoZoom);
+        _sidelineFovDisplay = new Label { Text = "FOV —" };
+        options.AddChild(_sidelineFovDisplay);
+        AddButton(options, "Reset Zoom", ResetSidelineZoom);
+
+        var framing = new HBoxContainer();
+        _sidelineSection.AddChild(framing);
+        framing.AddChild(new Label { Text = "Framing XYZ", CustomMinimumSize = new Vector2(86, 0) });
+        for (var index = 0; index < _sidelineFraming.Length; index++)
+        {
+            _sidelineFraming[index] = CreateSpinBox(-20, 20, 0.1);
+            _sidelineFraming[index].Prefix = index switch { 0 => "X ", 1 => "Y ", _ => "Z " };
+            _sidelineFraming[index].ValueChanged += OnSidelineValueChanged;
+            framing.AddChild(_sidelineFraming[index]);
+        }
+    }
+
+    private SpinBox AddSidelineField(GridContainer grid, string label, double minimum, double maximum, double step)
+    {
+        grid.AddChild(new Label { Text = label });
+        var field = CreateSpinBox(minimum, maximum, step);
+        field.ValueChanged += OnSidelineValueChanged;
+        grid.AddChild(field);
+        return field;
+    }
+
     private static SpinBox CreateSpinBox(double minimum, double maximum, double step = 1) => new()
     {
         MinValue = minimum,
@@ -291,11 +398,14 @@ public partial class CameraDirectorPanel : PanelContainer
         _playerIds.Clear();
         _playerOption.Clear();
         _povTargetPlayerOption.Clear();
+        _sidelineTarget.Clear();
+        _sidelineTarget.AddItem("None");
         foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
         {
             _playerIds.Add(player.Id);
             _playerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
             _povTargetPlayerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
+            _sidelineTarget.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
         }
     }
 
@@ -318,6 +428,14 @@ public partial class CameraDirectorPanel : PanelContainer
         _pitchOffset.Value = settings.PitchOffsetDegrees;
         _forwardOffset.Value = settings.ForwardOffset;
         _nearClip.Value = settings.NearClip;
+        _povHorizontalFov.Value = settings.HorizontalFieldOfView;
+        _povVerticalFov.Value = settings.VerticalFieldOfView;
+        _povLens.Select((int)settings.LensPreset);
+        _povMount.Select((int)settings.Mount);
+        _distortion.Value = settings.DistortionStrength;
+        _horizonLevel.Value = settings.HorizonLeveling;
+        _upOffset.Value = settings.UpOffset;
+        _motionSmoothing.Value = settings.MotionSmoothing;
         _povTargetKindOption.Select((int)settings.TargetKind);
         SetVector(_povWorldTarget, settings.WorldTarget);
         var playerIndex = camera.PlayerId.HasValue ? _playerIds.IndexOf(camera.PlayerId.Value) : -1;
@@ -327,6 +445,24 @@ public partial class CameraDirectorPanel : PanelContainer
             _playerOption.Select(-1);
         var targetPlayerIndex = settings.TargetPlayerId.HasValue ? _playerIds.IndexOf(settings.TargetPlayerId.Value) : -1;
         _povTargetPlayerOption.Select(targetPlayerIndex);
+        var sideline = camera.SidelineSettings;
+        _sidelineBehavior.Select((int)sideline.Behavior);
+        _sidelineSide.Select((int)sideline.Side);
+        _sidelineHeight.Value = sideline.CameraHeight;
+        _sidelineDistance.Value = sideline.SidelineDistance;
+        _sidelineFocal.Value = sideline.FocalLengthMm;
+        _sidelineMinFocal.Value = sideline.MinimumFocalLengthMm;
+        _sidelineMaxFocal.Value = sideline.MaximumFocalLengthMm;
+        _sidelineZoomSpeed.Value = sideline.ZoomSpeed;
+        _sidelinePan.Value = sideline.PanDegrees;
+        _sidelineTilt.Value = sideline.TiltDegrees;
+        _sidelineTracking.Value = sideline.TrackingStrength;
+        _sidelineAutoZoom.ButtonPressed = sideline.AutoZoom;
+        _sidelineTargetSize.Value = sideline.TargetScreenSize;
+        SetVector(_sidelineFraming, sideline.FramingOffset);
+        var sidelineTargetIndex = sideline.TargetPlayerId.HasValue ? _playerIds.IndexOf(sideline.TargetPlayerId.Value) : -1;
+        _sidelineTarget.Select(sidelineTargetIndex + 1);
+        UpdateSidelineFovDisplay(sideline.FocalLengthMm);
         UpdateFieldAvailability(true);
     }
 
@@ -346,6 +482,9 @@ public partial class CameraDirectorPanel : PanelContainer
         if (_activeCameraId == Guid.Empty || !_project.Cameras.Any(camera => camera.Id == _activeCameraId))
             return;
         var type = _project.Camera(_activeCameraId).Type;
+        _povSection.Visible = type == CameraType.PlayerPov;
+        _sidelineSection.Visible = type == CameraType.SidelineLow;
+        _freeSection.Visible = type == CameraType.FreeCamera;
         var free = panelEnabled && type == CameraType.FreeCamera;
         foreach (var spinBox in _position.Concat(_rotation))
             spinBox.Editable = free;
@@ -356,7 +495,9 @@ public partial class CameraDirectorPanel : PanelContainer
         foreach (var field in new[]
                  {
                      _mouseSensitivity, _controllerSensitivity, _stabilization, _headBob,
-                     _pitchOffset, _forwardOffset, _nearClip
+                     _pitchOffset, _forwardOffset, _nearClip,
+                     _povHorizontalFov, _povVerticalFov, _distortion, _horizonLevel,
+                     _upOffset, _motionSmoothing
                  })
             field.Editable = pov;
         var lookAt = pov && SelectedPovMode() == PlayerPovMode.LookAtTarget;
@@ -365,6 +506,20 @@ public partial class CameraDirectorPanel : PanelContainer
         foreach (var field in _povWorldTarget)
             field.Editable = lookAt && SelectedPovTargetKind() == PlayerPovTargetKind.WorldPoint;
         _recenterButton.Disabled = !pov || SelectedPovMode() != PlayerPovMode.FreeLook;
+        _povLens.Disabled = !pov;
+        _povMount.Disabled = !pov;
+        var sideline = panelEnabled && type == CameraType.SidelineLow;
+        _sidelineBehavior.Disabled = !sideline;
+        _sidelineSide.Disabled = !sideline;
+        _sidelineTarget.Disabled = !sideline;
+        _sidelineAutoZoom.Disabled = !sideline;
+        foreach (var field in new[]
+                 {
+                     _sidelineHeight, _sidelineDistance, _sidelineFocal, _sidelineMinFocal,
+                     _sidelineMaxFocal, _sidelineZoomSpeed, _sidelinePan, _sidelineTilt,
+                     _sidelineTracking, _sidelineTargetSize
+                 }.Concat(_sidelineFraming))
+            field.Editable = sideline;
     }
 
     private void OnCameraSelected(long index)
@@ -418,7 +573,15 @@ public partial class CameraDirectorPanel : PanelContainer
                 (float)_nearClip.Value,
                 SelectedPovTargetKind(),
                 targetPlayer,
-                ReadVector(_povWorldTarget)));
+                ReadVector(_povWorldTarget),
+                (float)_povHorizontalFov.Value,
+                (float)_povVerticalFov.Value,
+                (PlayerPovLensPreset)_povLens.GetSelectedId(),
+                (float)_distortion.Value,
+                (float)_horizonLevel.Value,
+                (PlayerPovMount)_povMount.GetSelectedId(),
+                (float)_upOffset.Value,
+                (float)_motionSmoothing.Value));
         UpdateFieldAvailability(true);
     }
 
@@ -432,6 +595,51 @@ public partial class CameraDirectorPanel : PanelContainer
             ReadVector(_rotation),
             (float)_fov.Value);
     }
+
+    private void OnPovLensSelected(long index)
+    {
+        if (_refreshing) return;
+        var preset = (PlayerPovLensPreset)_povLens.GetItemId((int)index);
+        var fov = preset switch
+        {
+            PlayerPovLensPreset.GoProLinear => (90f, 65f),
+            PlayerPovLensPreset.GoProSuperView => (120f, 95f),
+            PlayerPovLensPreset.Narrow => (60f, 45f),
+            _ => (100f, 75f)
+        };
+        _povHorizontalFov.Value = fov.Item1;
+        _povVerticalFov.Value = fov.Item2;
+        RequestPovSettingsChange();
+    }
+
+    private void OnSidelineValueChanged(long _) => RequestSidelineSettingsChange();
+    private void OnSidelineValueChanged(double _) => RequestSidelineSettingsChange();
+
+    private void RequestSidelineSettingsChange()
+    {
+        if (_refreshing || _activeCameraId == Guid.Empty) return;
+        var targetIndex = _sidelineTarget.Selected - 1;
+        var target = targetIndex >= 0 && targetIndex < _playerIds.Count ? _playerIds[targetIndex] : (Guid?)null;
+        var settings = new SidelineCameraSettings(
+            (CameraBehaviorPreset)_sidelineBehavior.GetSelectedId(),
+            (SidelineSide)_sidelineSide.GetSelectedId(),
+            (float)_sidelineHeight.Value, (float)_sidelineDistance.Value,
+            (float)_sidelineFocal.Value, (float)_sidelineMinFocal.Value, (float)_sidelineMaxFocal.Value,
+            (float)_sidelineZoomSpeed.Value, (float)_sidelinePan.Value, (float)_sidelineTilt.Value,
+            target, (float)_sidelineTracking.Value, ReadVector(_sidelineFraming),
+            _sidelineAutoZoom.ButtonPressed, (float)_sidelineTargetSize.Value);
+        UpdateSidelineFovDisplay(settings.FocalLengthMm);
+        SidelineSettingsChanged?.Invoke(_activeCameraId, settings);
+    }
+
+    private void ResetSidelineZoom()
+    {
+        _sidelineFocal.Value = SidelineCameraSettings.Default.FocalLengthMm;
+        RequestSidelineSettingsChange();
+    }
+
+    private void UpdateSidelineFovDisplay(float focalLength) =>
+        _sidelineFovDisplay.Text = $"FOV H {SidelineCameraSettings.FovForSensor(36, focalLength):0.0}° / V {SidelineCameraSettings.FovForSensor(24, focalLength):0.0}°";
 
     private void RequestRename() => RenameRequested?.Invoke(_activeCameraId, _nameEdit.Text);
     private void RequestDuplicate() => DuplicateRequested?.Invoke(_activeCameraId);
@@ -466,6 +674,20 @@ public partial class CameraDirectorPanel : PanelContainer
         values[2].Value = vector.Z;
     }
 
+    private static OptionButton EnumOption<T>() where T : struct, Enum
+    {
+        var option = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        foreach (var value in Enum.GetValues<T>())
+            option.AddItem(value.ToString(), Convert.ToInt32(value));
+        return option;
+    }
+
+    private static void AddField(GridContainer grid, string label, Control control)
+    {
+        grid.AddChild(new Label { Text = label });
+        grid.AddChild(control);
+    }
+
     private static string DisplayName(CameraType type) => type switch
     {
         CameraType.BroadcastWide => "Broadcast Wide",
@@ -496,5 +718,14 @@ public partial class CameraDirectorPanel : PanelContainer
         PlayerPovTargetKind.Football => "Football",
         PlayerPovTargetKind.WorldPoint => "World Point",
         _ => kind.ToString()
+    };
+
+    private static string LensName(PlayerPovLensPreset preset) => preset switch
+    {
+        PlayerPovLensPreset.GoProWide => "GoPro Wide",
+        PlayerPovLensPreset.GoProLinear => "GoPro Linear",
+        PlayerPovLensPreset.GoProSuperView => "GoPro SuperView-style",
+        PlayerPovLensPreset.Narrow => "Narrow",
+        _ => preset.ToString()
     };
 }

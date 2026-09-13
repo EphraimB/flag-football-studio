@@ -86,7 +86,10 @@ timings when available.
   reusable cameras and per-play cut timing. `GameProject` owns both collections,
   and the existing JSON project file persists them. `PlayerPovSettings` stores
   the selected POV mode, sensitivities, stabilization/head-bob strengths, camera
-  offsets, near clip, and Look At target without depending on Godot types.
+  offsets, near clip, and Look At target without depending on Godot types. The
+  same definition owns action-camera lens/mount data and a separate
+  `SidelineCameraSettings` value for physical placement, optics, operator
+  framing, tracking, and optional auto-zoom.
 - `CameraDirectorPanel` edits camera data. `CameraDirectorController` is the
   presentation adapter that positions the Godot `Camera3D`, stabilizes Player
   POV views, applies camera-specific first-person visibility, and performs timed
@@ -187,6 +190,11 @@ current operating system's per-user application-data directory.
 - **Type** selects Broadcast Wide, Sideline Low, End Zone, Player POV, or Free
   Camera.
 - For **Player POV**, choose a Gold or Navy player from **POV Player**.
+- Player POV is a wearable action-camera profile. Choose GoPro Wide, GoPro
+  Linear, a SuperView-style approximation, or Narrow; edit horizontal/vertical
+  FOV, distortion approximation, horizon leveling, stabilization, body motion,
+  smoothing, offsets, and near clip; and mount it at the eyes, forehead, chest,
+  or shoulder. Head-only culling remains specific to the POV camera.
 - **POV Mode** provides **Locked Forward**, **Free Look**, and **Look At Target**.
   Locked Forward retains the stabilized forward view. Free Look layers clamped
   mouse or controller yaw/pitch over the mount. Look At Target smoothly tracks
@@ -198,6 +206,14 @@ current operating system's per-user application-data directory.
   forward.
 - For **Free Camera**, edit position, rotation in degrees, and FOV. Changes are
   previewed immediately; **Preview** reapplies the selected camera at any time.
+- For **Sideline Low**, select the left or right sideline, physical height and
+  distance beyond the boundary, Static/Track Player/Track Football/Follow Play
+  Center/Manual behavior, target, pan, tilt, tracking strength, and framing
+  offset. The camera pans and tilts in place rather than translating with play.
+  Focal length changes projection FOV without moving the camera. Min/max focal
+  length, zoom speed, target size, and auto-zoom are saved per camera; the mouse
+  wheel optically zooms unhandled viewport input and **Reset Zoom** restores
+  35 mm.
 - Enter a time in seconds and choose **Add Cut** to add the selected camera to
   the current play's cut list. Select a cut and choose **Delete Cut** to remove
   it. Timed cuts run when **Run Play** is pressed.
@@ -205,12 +221,14 @@ current operating system's per-user application-data directory.
 Camera definitions, cuts, and the saved POV settings are included whenever
 **Save Project** is used and are restored by **Load Project**. Live Free Look
 yaw/pitch, recenter progress, and mouse-capture state are intentionally transient.
+Auto-zoom convergence and tracking interpolation are also transient; their
+configured lens, limits, target, and strengths persist.
 
-Player POV uses a lightly damped mount that tracks the rig's stable,
-head-relative `EyeAnchor`. Root movement and turns remain immediate while small
-skeletal head motion is smoothed. The camera sits slightly forward of the eyes,
-uses a short configurable near clip, and has a modest downward pitch so the
-torso and moving hands enter the view naturally.
+Player POV uses a damped wearable mount that tracks a stable eye, head, chest,
+or shoulder rig anchor. Root movement and turns remain football-driven while
+skeletal mount motion is smoothed and optionally horizon-leveled. Configurable
+forward/up offsets, near clip, pitch, and body-motion strength keep the torso and
+moving hands naturally available to the frame.
 
 Only the selected player's head-attached face, eyes, mouth, hair, and head
 accessories move to the dedicated first-person head render layer. The POV camera
@@ -481,6 +499,17 @@ player/football/world target tracking, JSON round trips, transient-angle
 exclusion, mouse release/recapture, whole-body and broadcast visibility,
 animation stabilization, and independence from player facing and eye gaze.
 
+### Action and sideline camera validation
+
+```powershell
+godot --headless --path . -- --validate-camera-profiles
+```
+
+It checks every action-camera lens and wearable mount, body visibility, Free
+Look independence, fixed sideline placement, smooth player/football tracking,
+focal-length zoom without translation, route/catch/flag-pull tracking,
+POV-to-sideline cuts, and JSON round trips.
+
 ### Dialogue and spatial-audio validation
 
 Run the focused dialogue validation with:
@@ -551,7 +580,13 @@ Free Look has no physical neck/torso follow-through, target tracking respects th
 same realistic yaw/pitch clamps and therefore cannot center targets directly
 behind the player, and controller response uses a fixed Input Map deadzone.
 Stabilization does not implement physical head inertia, collision avoidance, or
-a separate first-person animation set.
+a separate first-person animation set. SuperView/fisheye is currently an FOV
+expansion rather than a post-process distortion shader. Horizontal and vertical
+action-camera FOV are saved together, but Godot renders the vertical value and
+derives actual horizontal projection from viewport aspect ratio. Sideline
+auto-framing uses target distance rather than image-space bounds; there is no
+focus pull, depth-of-field, lens breathing, camera collision, tripod geometry,
+or recorded operator keyframe track yet.
 
 Dialogue can play imported or locally generated Piper speech, but recording and
 external editing happen outside the application. Piper is optional and must be

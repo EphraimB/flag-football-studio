@@ -514,6 +514,7 @@ public sealed class ProjectJsonSerializer
         public float FieldOfView { get; set; }
         public Guid? PlayerId { get; set; }
         public PlayerPovSettings? PlayerPovSettings { get; set; }
+        public SidelineCameraSettings? SidelineCameraSettings { get; set; }
 
         public static CameraData FromDomain(CameraDefinition camera) => new()
         {
@@ -524,7 +525,8 @@ public sealed class ProjectJsonSerializer
             RotationDegrees = camera.RotationDegrees,
             FieldOfView = camera.FieldOfView,
             PlayerId = camera.PlayerId,
-            PlayerPovSettings = camera.PovSettings
+            PlayerPovSettings = camera.PovSettings,
+            SidelineCameraSettings = camera.SidelineSettings
         };
 
         public CameraDefinition ToDomain()
@@ -533,7 +535,27 @@ public sealed class ProjectJsonSerializer
             camera.SetFreeCamera(Position, RotationDegrees, FieldOfView);
             camera.SetPlayer(PlayerId);
             if (PlayerPovSettings.HasValue)
-                camera.SetPlayerPovSettings(PlayerPovSettings.Value);
+            {
+                var settings = PlayerPovSettings.Value;
+                if (settings.HorizontalFieldOfView <= 0 || settings.VerticalFieldOfView <= 0)
+                {
+                    var defaults = global::FlagFootballStudio.Domain.PlayerPovSettings.Default;
+                    settings = settings with
+                    {
+                        HorizontalFieldOfView = defaults.HorizontalFieldOfView,
+                        VerticalFieldOfView = defaults.VerticalFieldOfView,
+                        LensPreset = defaults.LensPreset,
+                        DistortionStrength = defaults.DistortionStrength,
+                        HorizonLeveling = defaults.HorizonLeveling,
+                        Mount = defaults.Mount,
+                        UpOffset = defaults.UpOffset,
+                        MotionSmoothing = defaults.MotionSmoothing
+                    };
+                }
+                camera.SetPlayerPovSettings(settings);
+            }
+            if (SidelineCameraSettings.HasValue)
+                camera.SetSidelineSettings(SidelineCameraSettings.Value);
             return camera;
         }
     }
