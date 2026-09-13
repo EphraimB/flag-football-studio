@@ -59,6 +59,8 @@ public partial class VoiceLipSyncValidator : Node3D
         cameraController.Preview(project.Cameras[0], play);
 
         var playback = new DialoguePlaybackController { Name = "VoiceValidationPlayback" }; AddChild(playback);
+        var diagnostics = new List<string>();
+        playback.AudioDiagnosticsReported += diagnostics.Add;
         playback.Configure(_pawns, football, camera, assetStore, project.PlayerVoiceProfiles);
         var task = playback.PlaySequencesAsync([sequence]);
         await WaitSeconds(0.09);
@@ -71,6 +73,12 @@ public partial class VoiceLipSyncValidator : Node3D
             "Audio without timestamps did not use real audio plus clearly identified generic mouth motion.");
         Require(playback.LipSyncModeFor(manualLine.Id) == LipSyncPlaybackMode.ManualTimestamped,
             "Timestamped dialogue was not identified as manual lip sync.");
+        Require(diagnostics.Any(report => report.Contains("streamNonNull=True", StringComparison.Ordinal) &&
+                                          report.Contains("playCalled=True", StringComparison.Ordinal) &&
+                                          report.Contains("playingAfterStart=True", StringComparison.Ordinal)),
+            $"Playback diagnostics did not confirm stream assignment and a running player. Reports: {string.Join(" | ", diagnostics)}");
+        Require(diagnostics.Any(report => report.Contains("OUTSIDE MAX DISTANCE", StringComparison.Ordinal)),
+            "The broadcast-listener/max-distance failure condition was not diagnosed.");
         var manualPawn = (PlayerPawn)_pawns[speakerC.Id];
         Require(manualPawn.FacialExpression == FacialExpressionState.Smile,
             "Expression did not layer with lip sync.");
@@ -94,6 +102,17 @@ public partial class VoiceLipSyncValidator : Node3D
         Require(playback.ListenerCamera == camera && manualPawn.FirstPersonViewActive,
             "Player POV did not retain the active speech listener or body presentation.");
         await task;
+
+        var rawReport = await playback.TestRawAudioAsync(genericLine);
+        Require(rawReport.Contains("Raw 2D test", StringComparison.Ordinal) &&
+                rawReport.Contains("bus=Master, busValid=True, masterMuted=False", StringComparison.Ordinal) &&
+                rawReport.Contains("playingAfterStart=True", StringComparison.Ordinal),
+            "The raw non-spatial diagnostic did not prove Master-bus playback.");
+        var spatialReport = await playback.TestSpatialAudioAsync(genericLine);
+        Require(spatialReport.Contains("Spatial 3D test", StringComparison.Ordinal) &&
+                spatialReport.Contains("distance=1.000", StringComparison.Ordinal) &&
+                spatialReport.Contains("playingAfterStart=True", StringComparison.Ordinal),
+            "The forced-near spatial diagnostic did not prove 3D playback.");
 
         var previewTask = playback.PreviewLineAsync(silentLine);
         await WaitSeconds(0.05);

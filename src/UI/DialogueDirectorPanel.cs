@@ -40,6 +40,7 @@ public partial class DialogueDirectorPanel : PanelContainer
     private Label _audioStatus = null!;
     private Label _audioFilename = null!;
     private Label _clipDuration = null!;
+    private Label _audioDiagnostics = null!;
     private CheckButton _developerToneEnabled = null!;
     private ItemList _visemeList = null!;
     private OptionButton _visemeShape = null!;
@@ -66,6 +67,8 @@ public partial class DialogueDirectorPanel : PanelContainer
     public event Action<DialogueLine, double>? PreviewFromTimeRequested;
     public event Action<DialogueLine, PlayerVoiceProfile, bool>? GenerateSpeechRequested;
     public event Action<DialogueLine, bool>? GenerateLipSyncRequested;
+    public event Action<DialogueLine>? RawAudioTestRequested;
+    public event Action<DialogueLine>? SpatialAudioTestRequested;
     public event Action<string>? StatusChanged;
 
     public void Configure(GameProject project, PlayDefinition play, ProjectAudioAssetStore audioAssets)
@@ -195,6 +198,8 @@ public partial class DialogueDirectorPanel : PanelContainer
         importButton.TooltipText = audioHelpText;
         var previewAudioButton = AddButton(audioActions, "Preview Audio", PreviewAudio);
         previewAudioButton.TooltipText = "Preview the assigned speech clip with spatial audio and the selected lip-sync behavior.";
+        AddButton(audioActions, "Test Raw Audio", TestRawAudio);
+        AddButton(audioActions, "Test Spatial Audio", TestSpatialAudio);
         AddButton(audioActions, "Remove Audio", RemoveAudio);
         var audioInfo = new GridContainer { Columns = 6 };
         stack.AddChild(audioInfo);
@@ -207,6 +212,12 @@ public partial class DialogueDirectorPanel : PanelContainer
         audioInfo.AddChild(_audioFilename);
         audioInfo.AddChild(new Label { Text = "Clip duration" });
         _clipDuration = new Label { Text = "—" }; audioInfo.AddChild(_clipDuration);
+        _audioDiagnostics = new Label
+        {
+            Text = "Audio diagnostics appear here after preview or testing.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        stack.AddChild(_audioDiagnostics);
 
         _developerToneEnabled = new CheckButton
         {
@@ -260,9 +271,10 @@ public partial class DialogueDirectorPanel : PanelContainer
         stack.MoveChild(audioActions, 6);
         stack.MoveChild(audioInfo, 7);
         stack.MoveChild(_developerToneEnabled, 8);
-        stack.MoveChild(voiceGrid, 9);
-        stack.MoveChild(generationActions, 10);
-        stack.MoveChild(_generationStatus, 11);
+        stack.MoveChild(_audioDiagnostics, 9);
+        stack.MoveChild(voiceGrid, 10);
+        stack.MoveChild(generationActions, 11);
+        stack.MoveChild(_generationStatus, 12);
 
         _speaker.ItemSelected += _ => RefreshVoiceProfile();
         _voiceProfile.ItemSelected += _ => LoadSelectedVoiceProfile();
@@ -384,6 +396,18 @@ public partial class DialogueDirectorPanel : PanelContainer
             return;
         }
         PreviewLineRequested?.Invoke(line);
+    }
+
+    private void TestRawAudio()
+    {
+        if (_selectedLineId == Guid.Empty) { StatusChanged?.Invoke("Select a dialogue line first"); return; }
+        RawAudioTestRequested?.Invoke(SelectedLine());
+    }
+
+    private void TestSpatialAudio()
+    {
+        if (_selectedLineId == Guid.Empty) { StatusChanged?.Invoke("Select a dialogue line first"); return; }
+        SpatialAudioTestRequested?.Invoke(SelectedLine());
     }
 
     private void RefreshSequences()
@@ -631,6 +655,8 @@ public partial class DialogueDirectorPanel : PanelContainer
         RefreshLines();
         LoadLine(line);
     }
+
+    public void SetAudioDiagnostics(string report) => _audioDiagnostics.Text = report;
 
     private PlayerVoiceProfile SelectedVoiceProfile()
     {

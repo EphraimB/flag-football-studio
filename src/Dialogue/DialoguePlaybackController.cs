@@ -21,6 +21,8 @@ public partial class DialoguePlaybackController : Node
     private IReadOnlyDictionary<Guid, PlayerVoiceProfile> _voiceProfiles = new Dictionary<Guid, PlayerVoiceProfile>();
     private int _generation;
 
+    public event Action<string>? AudioDiagnosticsReported;
+
     public int ActiveLineCount => _activeLines.Count;
     public int PeakConcurrentLineCount { get; private set; }
     public Camera3D ListenerCamera => _listenerCamera;
@@ -118,8 +120,13 @@ public partial class DialoguePlaybackController : Node
         ApplyPresentation(line, speaker);
         var source = CreateSource(line, allowPlaceholderTone);
         speaker.MouthAudioAnchor.AddChild(source);
+        var playCalled = false;
         if (source.Stream is not null)
+        {
             source.Play((float)seekSeconds);
+            playCalled = true;
+        }
+        ReportSpatialStart(line, source, speaker.MouthAudioAnchor.GlobalPosition, playCalled, "Normal dialogue");
         var lipSyncMode = line.LipSyncSource switch
         {
             LipSyncSource.Manual => LipSyncPlaybackMode.ManualTimestamped,
@@ -233,8 +240,117 @@ public partial class DialoguePlaybackController : Node
             UnitSize = 1,
             MaxDistance = EffectiveAudibilityRadius(line),
             AttenuationFilterDb = -18,
+            Bus = "Master",
             Autoplay = false
         };
+    }
+
+    public async Task<string> TestRawAudioAsync(DialogueLine line)
+    {
+        var info = RequireAssignedAudio(line);
+        var player = new AudioStreamPlayer
+        {
+            Name = $"RawAudioTest_{line.Id:N}",
+            Stream = info.Stream,
+            Bus = "Master",
+            VolumeDb = 0
+        };
+        AddChild(player);
+        player.Play();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        var report = FormatDiagnostics("Raw 2D test", info, player.Stream is not null, true, player.Playing,
+            player.VolumeDb, player.Bus, null, null, null, null, "2D: attenuation bypassed");
+        AudioDiagnosticsReported?.Invoke(report);
+        _ = CleanupPlayerAsync(player, info.StreamLengthSeconds);
+        return report;
+    }
+
+    public async Task<string> TestSpatialAudioAsync(DialogueLine line)
+    {
+        var info = RequireAssignedAudio(line);
+        var source = new AudioStreamPlayer3D
+        {
+            Name = $"SpatialAudioTest_{line.Id:N}",
+            Stream = info.Stream,
+            Bus = "Master",
+            VolumeDb = 0,
+            UnitSize = 1,
+            MaxDistance = 100,
+            AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.Disabled,
+            AttenuationFilterDb = 0
+        };
+        AddChild(source);
+        source.GlobalPosition = _listenerCamera.GlobalPosition - _listenerCamera.GlobalBasis.Z.Normalized();
+        source.Play();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        var distance = _listenerCamera.GlobalPosition.DistanceTo(source.GlobalPosition);
+        var report = FormatDiagnostics("Spatial 3D test", info, source.Stream is not null, true, source.Playing,
+            source.VolumeDb, source.Bus, _listenerCamera.GlobalPosition, source.GlobalPosition, distance,
+            source.MaxDistance, $"model={source.AttenuationModel}, unit={source.UnitSize:0.00}, filter={source.AttenuationFilterDb:0.00} dB");
+        AudioDiagnosticsReported?.Invoke(report);
+        _ = CleanupPlayerAsync(source, info.StreamLengthSeconds);
+        return report;
+    }
+
+    private VoiceAudioStreamLoader.DecodedAudioInfo RequireAssignedAudio(DialogueLine line)
+    {
+        if (line.AudioReference is null) throw new InvalidOperationException("The selected line has no assigned audio.");
+        if (_audioAssets is null) throw new InvalidOperationException("The project audio store is unavailable.");
+        return VoiceAudioStreamLoader.Inspect(_audioAssets, line.AudioReference);
+    }
+
+    private void ReportSpatialStart(DialogueLine line, AudioStreamPlayer3D source,
+        Vector3 sourcePosition, bool playCalled, string context)
+    {
+        VoiceAudioStreamLoader.DecodedAudioInfo? info = null;
+        if (line.AudioReference is not null && _audioAssets is not null)
+        {
+            try { info = VoiceAudioStreamLoader.Inspect(_audioAssets, line.AudioReference); }
+            catch (Exception exception)
+            {
+                AudioDiagnosticsReported?.Invoke($"{context}\nDecode diagnostics failed: {exception.Message}");
+            }
+        }
+        if (info is null) return;
+        var listenerPosition = _listenerCamera.GlobalPosition;
+        var distance = listenerPosition.DistanceTo(sourcePosition);
+        var attenuation = $"model={source.AttenuationModel}, unit={source.UnitSize:0.00}, filter={source.AttenuationFilterDb:0.00} dB";
+        if (distance > source.MaxDistance) attenuation += " — OUTSIDE MAX DISTANCE";
+        AudioDiagnosticsReported?.Invoke(FormatDiagnostics(context, info, source.Stream is not null,
+            playCalled, source.Playing, source.VolumeDb, source.Bus, listenerPosition, sourcePosition,
+            distance, source.MaxDistance, attenuation));
+    }
+
+    private static string FormatDiagnostics(string context, VoiceAudioStreamLoader.DecodedAudioInfo info,
+        bool streamAssigned, bool playCalled, bool playing, float volumeDb, string bus,
+        Vector3? listener, Vector3? source, float? distance, float? maxDistance, string attenuation)
+    {
+        var busIndex = AudioServer.GetBusIndex(bus);
+        var busValid = busIndex >= 0;
+        var busMuted = busValid && AudioServer.IsBusMute(busIndex);
+        return $"{context}\n" +
+               $"path={info.ResolvedPath}\nexists={info.Exists}, bytes={info.FileSizeBytes}, format={info.Format}\n" +
+               $"decodedLength={info.StreamLengthSeconds:0.000}s, sampleRate={Value(info.SampleRate)}, channels={Value(info.ChannelCount)}\n" +
+               $"streamNonNull={streamAssigned}, playCalled={playCalled}, playingAfterStart={playing}\n" +
+               $"volumeDb={volumeDb:0.00}, bus={bus}, busValid={busValid}, masterMuted={MasterMuted()}\n" +
+               $"listener={Position(listener)}, source={Position(source)}, distance={Value(distance)}, maxDistance={Value(maxDistance)}\n" +
+               $"attenuation={attenuation}";
+    }
+
+    private static bool MasterMuted()
+    {
+        var master = AudioServer.GetBusIndex("Master");
+        return master >= 0 && AudioServer.IsBusMute(master);
+    }
+
+    private static string Position(Vector3? value) => value.HasValue ? value.Value.ToString() : "n/a";
+    private static string Value(int? value) => value?.ToString() ?? "unavailable";
+    private static string Value(float? value) => value.HasValue ? $"{value.Value:0.000}" : "n/a";
+
+    private async Task CleanupPlayerAsync(Node player, double duration)
+    {
+        await ToSignal(GetTree().CreateTimer(Math.Max(0.25, duration + 0.1)), SceneTreeTimer.SignalName.Timeout);
+        if (GodotObject.IsInstanceValid(player)) player.QueueFree();
     }
 
     private static AudioStreamWav CreateTone(SpeechStyle style)

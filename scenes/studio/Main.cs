@@ -68,6 +68,7 @@ public partial class Main : Node3D
         _dialogueController = new DialoguePlaybackController { Name = "DialoguePlaybackController" };
         AddChild(_dialogueController);
         _dialogueController.Configure(_pawns, _football, _previewCamera, _audioAssetStore, _project.PlayerVoiceProfiles);
+        _dialogueController.AudioDiagnosticsReported += OnAudioDiagnosticsReported;
 
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
@@ -107,6 +108,8 @@ public partial class Main : Node3D
         _dialogueDirector.StatusChanged += message => _gameDirector.SetStatus(message);
         _dialogueDirector.GenerateSpeechRequested += OnGenerateSpeechRequested;
         _dialogueDirector.GenerateLipSyncRequested += OnGenerateLipSyncRequested;
+        _dialogueDirector.RawAudioTestRequested += OnRawAudioTestRequested;
+        _dialogueDirector.SpatialAudioTestRequested += OnSpatialAudioTestRequested;
 
         if (OS.GetCmdlineUserArgs().Contains("--validate-local-tts"))
             CallDeferred(nameof(RunLocalTtsValidation));
@@ -709,6 +712,42 @@ public partial class Main : Node3D
         {
             _dialogueDirector.SetGenerationStatus(TtsGenerationState.Failed, exception.Message);
         }
+    }
+
+    private async void OnRawAudioTestRequested(DialogueLine line)
+    {
+        try
+        {
+            var report = await _dialogueController.TestRawAudioAsync(line);
+            _dialogueDirector.SetAudioDiagnostics(report);
+            _gameDirector.SetStatus("Raw 2D audio test started on Master");
+        }
+        catch (Exception exception)
+        {
+            _dialogueDirector.SetAudioDiagnostics($"Raw 2D test failed: {exception.Message}");
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private async void OnSpatialAudioTestRequested(DialogueLine line)
+    {
+        try
+        {
+            var report = await _dialogueController.TestSpatialAudioAsync(line);
+            _dialogueDirector.SetAudioDiagnostics(report);
+            _gameDirector.SetStatus("Spatial test started one meter in front of the camera");
+        }
+        catch (Exception exception)
+        {
+            _dialogueDirector.SetAudioDiagnostics($"Spatial test failed: {exception.Message}");
+            _gameDirector.SetStatus(exception.Message);
+        }
+    }
+
+    private void OnAudioDiagnosticsReported(string report)
+    {
+        GD.Print(report);
+        _dialogueDirector.SetAudioDiagnostics(report);
     }
 
     private void OnCameraSelected(Guid cameraId)

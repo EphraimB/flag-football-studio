@@ -330,6 +330,14 @@ data receive default Gold and Navy home/away uniforms when loaded.
   timing, automatic provider timing, or manual lip sync.
   **Preview Audio** plays the assigned recording; **Remove Audio** removes only
   the assignment and deliberately leaves the imported file available for reuse.
+- **Test Raw Audio** sends the exact selected stream through a non-spatial
+  `AudioStreamPlayer` on the Master bus. **Test Spatial Audio** sends that stream
+  through `AudioStreamPlayer3D` one meter in front of the active camera with
+  attenuation disabled and a generous maximum distance. The diagnostic readout
+  and Godot log report the resolved path, file/decoder metadata, stream and
+  playback state, bus/mute state, listener/source positions, distance, volume,
+  and attenuation configuration. If raw succeeds but normal preview is silent,
+  compare its listener distance with the line's effective audibility radius.
 - Dialogue text never generates speech automatically. **Preview Line** reports
   a missing recording unless **Developer tone for unrecorded previews** is
   explicitly enabled; that option is off by default.
