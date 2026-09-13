@@ -75,6 +75,7 @@ public sealed class ProjectJsonSerializer
         public List<PlayerAppearanceData> PlayerAppearances { get; set; } = [];
         public List<UniformData> Uniforms { get; set; } = [];
         public Dictionary<Guid, Guid> ActiveUniformIds { get; set; } = [];
+        public List<DialogueSequenceData> DialogueSequences { get; set; } = [];
 
         public static GameProjectData FromDomain(GameProject project) => new()
         {
@@ -94,7 +95,8 @@ public sealed class ProjectJsonSerializer
             CameraCuts = project.CameraCuts.Select(CameraCutData.FromDomain).ToList(),
             PlayerAppearances = project.PlayerAppearances.Values.Select(PlayerAppearanceData.FromDomain).ToList(),
             Uniforms = project.Uniforms.Select(UniformData.FromDomain).ToList(),
-            ActiveUniformIds = project.ActiveUniformIds.ToDictionary(entry => entry.Key, entry => entry.Value)
+            ActiveUniformIds = project.ActiveUniformIds.ToDictionary(entry => entry.Key, entry => entry.Value),
+            DialogueSequences = project.DialogueSequences.Select(DialogueSequenceData.FromDomain).ToList()
         };
 
         public GameProject ToDomain()
@@ -111,8 +113,75 @@ public sealed class ProjectJsonSerializer
                 project.AddCamera(camera.ToDomain());
             foreach (var cut in CameraCuts)
                 project.AddCameraCut(cut.ToDomain());
+            foreach (var sequence in DialogueSequences)
+                project.AddDialogueSequence(sequence.ToDomain());
             return project;
         }
+    }
+
+    private sealed class DialogueSequenceData
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public DialogueSequenceContext Context { get; set; }
+        public Guid? PlayId { get; set; }
+        public List<DialogueLineData> Lines { get; set; } = [];
+
+        public static DialogueSequenceData FromDomain(DialogueSequence sequence) => new()
+        {
+            Id = sequence.Id,
+            Name = sequence.Name,
+            Context = sequence.Context,
+            PlayId = sequence.PlayId,
+            Lines = sequence.Lines.Select(DialogueLineData.FromDomain).ToList()
+        };
+
+        public DialogueSequence ToDomain()
+        {
+            var sequence = new DialogueSequence(Id, Name, Context, PlayId);
+            foreach (var line in Lines)
+                sequence.AddLine(line.ToDomain());
+            return sequence;
+        }
+    }
+
+    private sealed class DialogueLineData
+    {
+        public Guid Id { get; set; }
+        public Guid SpeakerPlayerId { get; set; }
+        public double StartTime { get; set; }
+        public double Duration { get; set; }
+        public string Text { get; set; } = string.Empty;
+        public float Volume { get; set; }
+        public SpeechStyle SpeechStyle { get; set; }
+        public float AudibilityRadius { get; set; }
+        public Guid? ListenerPlayerId { get; set; }
+        public DialogueExpression? Expression { get; set; }
+        public DialogueGazeTargetKind GazeTargetKind { get; set; }
+        public Guid? GazeTargetPlayerId { get; set; }
+        public DialoguePoint GazeWorldPoint { get; set; }
+
+        public static DialogueLineData FromDomain(DialogueLine line) => new()
+        {
+            Id = line.Id,
+            SpeakerPlayerId = line.SpeakerPlayerId,
+            StartTime = line.StartTime,
+            Duration = line.Duration,
+            Text = line.Text,
+            Volume = line.Volume,
+            SpeechStyle = line.SpeechStyle,
+            AudibilityRadius = line.AudibilityRadius,
+            ListenerPlayerId = line.ListenerPlayerId,
+            Expression = line.Expression,
+            GazeTargetKind = line.GazeTargetKind,
+            GazeTargetPlayerId = line.GazeTargetPlayerId,
+            GazeWorldPoint = line.GazeWorldPoint
+        };
+
+        public DialogueLine ToDomain() => new(
+            Id, SpeakerPlayerId, StartTime, Duration, Text, Volume, SpeechStyle,
+            AudibilityRadius, ListenerPlayerId, Expression, GazeTargetKind,
+            GazeTargetPlayerId, GazeWorldPoint);
     }
 
     private sealed class UniformData

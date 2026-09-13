@@ -12,7 +12,8 @@ include deterministic low-poly face customization, blended expression previews,
 blinking, gaze control, and reusable procedural hairstyles. It is an
 architectural prototype rather than a gameplay simulation. The presentation
 layer also includes deterministic mouth shapes intended as a future speech-
-animation foundation.
+animation foundation. The first Dialogue Director adds persisted scripted lines,
+presentation-only speech gestures, and procedural 3D placeholder audio.
 
 ## Repository layout
 
@@ -86,6 +87,16 @@ animation foundation.
   presentation adapter that positions the Godot `Camera3D`, stabilizes Player
   POV views, applies camera-specific first-person visibility, and performs timed
   cuts during playback.
+- `DialogueSequence` and `DialogueLine` are Godot-independent production data.
+  A sequence records its play, pre-play/huddle, post-play, or sideline context;
+  each ordered line records timing, speaker, text, level/style, radius, optional
+  listener, expression, and gaze metadata. `GameProject` owns the sequence
+  library and `ProjectJsonSerializer` persists it with the rest of the project.
+- `DialogueDirectorPanel` edits sequences and ordered lines.
+  `DialoguePlaybackController` is the Godot presentation adapter: it schedules
+  overlapping lines, mounts one `AudioStreamPlayer3D` on each speaker's stable
+  head-bone `MouthAudioAnchor`, cycles existing deterministic mouth poses, and
+  temporarily applies/restores expression and gaze state.
 - `PlayerAppearance` is a Godot-independent per-roster-player model for height,
   build, shoulder/chest/waist/hip widths, arm/leg lengths, skin, hair, and
   optional accessories. Its Godot-independent `FaceAppearance` value stores
@@ -260,6 +271,36 @@ All saved uniforms and each team's active selection are included in **Save
 Project** and restored by **Load Project**. Older project files without uniform
 data receive default Gold and Navy home/away uniforms when loaded.
 
+### Dialogue Director controls
+
+- Enter a sequence name, choose **Play**, **Pre Play Huddle**, **Post Play**, or
+  **Sideline**, then choose **New Sequence**. Non-sideline sequences attach to
+  the currently selected play; sideline sequences remain project-wide.
+- Select a sequence, choose a roster speaker, enter the preserved script text,
+  and set start time, duration, normalized volume, speech style, and audibility
+  radius. Whisper and quiet styles intentionally reduce effective range; loud
+  and shout styles extend it.
+- Optionally choose a listener, an expression, and a gaze mode. Gaze can target
+  the listener, another roster player, the football, or a world-space XYZ
+  point.
+- **Add / Update** saves the line. **Move Up**, **Move Down**, and **Delete Line**
+  edit its persisted order. **Preview Line** plays only the selected line.
+- **Run Play** schedules all `Play`-context dialogue attached to the active play
+  alongside the existing choreography and camera cuts. Switching plays updates
+  the visible dialogue library and cancels transient playback.
+
+Dialogue metadata, including text and ordered line timing, is saved in the
+existing project JSON. Audio sources, current mouth pose, live expression/gaze,
+and playback time are transient and are never serialized. Older JSON without a
+dialogue collection loads with an empty library.
+
+Spatial listening follows Godot's active preview `Camera3D`. Player POV moves
+that camera to the stabilized eye mount, while broadcast/free camera previews
+move the same listener to their camera transform. This preserves positional
+left/right direction and distance attenuation through camera changes without
+coupling audio to football rules. Concurrent lines each own an independent 3D
+source, so nearby conversations may overlap.
+
 ### Humanoid validation
 
 After building, run the focused headless validation with:
@@ -361,6 +402,19 @@ player/football/world target tracking, JSON round trips, transient-angle
 exclusion, mouse release/recapture, whole-body and broadcast visibility,
 animation stabilization, and independence from player facing and eye gaze.
 
+### Dialogue and spatial-audio validation
+
+Run the focused dialogue validation with:
+
+```powershell
+godot --headless --path . -- --validate-dialogue-audio
+```
+
+It checks project JSON round trips, ordered play attachment and reload,
+overlapping lines, whisper/shout ranges, mouth-anchor source attachment,
+camera-relative listener movement for Player POV and broadcast positions,
+speech-mouth cycling, expression/gaze application, and presentation restoration.
+
 The current procedural body is deliberately low-poly. It is one skinned mesh
 resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
@@ -393,3 +447,11 @@ same realistic yaw/pitch clamps and therefore cannot center targets directly
 behind the player, and controller response uses a fixed Input Map deadzone.
 Stabilization does not implement physical head inertia, collision avoidance, or
 a separate first-person animation set.
+
+Dialogue currently uses a quiet deterministic looping tone to prove scheduling
+and spatialization; it does not speak the saved text. There is no recorded voice,
+TTS, phoneme extraction, true lip sync, voice mixing/mastering, occlusion,
+reverb zones, subtitles, or language/localization pipeline yet. Speech styles
+use simple range multipliers rather than acoustic simulation, mouth motion cycles
+generic visemes, and expression/gaze restoration returns to the prior visible
+direction rather than resuming a formerly tracked moving gaze target.

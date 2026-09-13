@@ -25,10 +25,12 @@ public partial class HumanoidRig : Node3D
     private FaceAppearance? _faceAppearance;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
+    private Node3D _mouthAudioAnchor = null!;
     private bool _firstPersonViewActive;
 
     public Node3D EyeAnchor => _eyeAnchor;
     public Node3D CatchAnchor => _catchAnchor;
+    public Node3D MouthAudioAnchor => _mouthAudioAnchor;
     public HumanoidAnimationState AnimationState => _animator.State;
     public FacialExpressionState FacialExpression => _facialController.Expression;
     public FacialExpressionPose FacialPose => _facialController.CurrentPose;
@@ -208,6 +210,9 @@ public partial class HumanoidRig : Node3D
 
         _eyeAnchor = new Node3D { Name = "EyeAnchor", Position = new Vector3(0, 0.19f, -0.29f) };
         _attachments[HumanoidSkeletonDefinition.Head].AddChild(_eyeAnchor);
+
+        _mouthAudioAnchor = new Node3D { Name = "MouthAudioAnchor", Position = new Vector3(0, -0.08f, -0.34f) };
+        _attachments[HumanoidSkeletonDefinition.Head].AddChild(_mouthAudioAnchor);
 
         _catchAnchor = new Node3D { Name = "CatchAnchor", Position = new Vector3(0, -0.05f, -0.12f) };
         _attachments[HumanoidSkeletonDefinition.RightHand].AddChild(_catchAnchor);

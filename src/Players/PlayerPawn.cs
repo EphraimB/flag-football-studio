@@ -14,6 +14,7 @@ public partial class PlayerPawn : Node3D
     public Player? Player { get; private set; }
     public Node3D EyeAnchor => _rig.EyeAnchor;
     public Node3D CatchAnchor => _rig.CatchAnchor;
+    public Node3D MouthAudioAnchor => _rig.MouthAudioAnchor;
     public HumanoidAnimationState AnimationState => _rig.AnimationState;
     public FacialExpressionState FacialExpression => _rig.FacialExpression;
     public FacialExpressionPose FacialPose => _rig.FacialPose;

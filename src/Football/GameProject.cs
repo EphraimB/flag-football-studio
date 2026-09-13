@@ -13,12 +13,14 @@ public sealed class GameProject
     private readonly Dictionary<Guid, PlayerAppearance> _playerAppearances = [];
     private readonly List<UniformDefinition> _uniforms = [];
     private readonly Dictionary<Guid, Guid> _activeUniformIds = [];
+    private readonly List<DialogueSequence> _dialogueSequences = [];
     private readonly ReadOnlyCollection<PlayDefinition> _readOnlyPlays;
     private readonly ReadOnlyCollection<CameraDefinition> _readOnlyCameras;
     private readonly ReadOnlyCollection<CameraCut> _readOnlyCameraCuts;
     private readonly ReadOnlyDictionary<Guid, PlayerAppearance> _readOnlyPlayerAppearances;
     private readonly ReadOnlyCollection<UniformDefinition> _readOnlyUniforms;
     private readonly ReadOnlyDictionary<Guid, Guid> _readOnlyActiveUniformIds;
+    private readonly ReadOnlyCollection<DialogueSequence> _readOnlyDialogueSequences;
 
     public GameProject(Guid id, string name, Team homeTeam, Team awayTeam)
     {
@@ -45,6 +47,7 @@ public sealed class GameProject
         _readOnlyPlayerAppearances = new ReadOnlyDictionary<Guid, PlayerAppearance>(_playerAppearances);
         _readOnlyUniforms = _uniforms.AsReadOnly();
         _readOnlyActiveUniformIds = new ReadOnlyDictionary<Guid, Guid>(_activeUniformIds);
+        _readOnlyDialogueSequences = _dialogueSequences.AsReadOnly();
         foreach (var player in HomeTeam.Roster)
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, true);
         foreach (var player in AwayTeam.Roster)
@@ -74,6 +77,7 @@ public sealed class GameProject
     public IReadOnlyDictionary<Guid, PlayerAppearance> PlayerAppearances => _readOnlyPlayerAppearances;
     public IReadOnlyList<UniformDefinition> Uniforms => _readOnlyUniforms;
     public IReadOnlyDictionary<Guid, Guid> ActiveUniformIds => _readOnlyActiveUniformIds;
+    public IReadOnlyList<DialogueSequence> DialogueSequences => _readOnlyDialogueSequences;
 
     public void SetGameState(
         int homeScore,
@@ -122,6 +126,7 @@ public sealed class GameProject
         if (play is null)
             return false;
         _cameraCuts.RemoveAll(cut => cut.PlayId == playId);
+        _dialogueSequences.RemoveAll(sequence => sequence.PlayId == playId);
         return _plays.Remove(play);
     }
 
@@ -180,6 +185,29 @@ public sealed class GameProject
 
     public IReadOnlyList<CameraCut> CameraCutsFor(Guid playId) =>
         _cameraCuts.Where(cut => cut.PlayId == playId).OrderBy(cut => cut.TimeSeconds).ToArray();
+
+    public void AddDialogueSequence(DialogueSequence sequence)
+    {
+        ArgumentNullException.ThrowIfNull(sequence);
+        if (sequence.PlayId.HasValue) Play(sequence.PlayId.Value);
+        if (_dialogueSequences.Any(existing => existing.Id == sequence.Id))
+            throw new InvalidOperationException("The dialogue sequence is already in this project.");
+        var rosterIds = HomeTeam.Roster.Concat(AwayTeam.Roster).Select(player => player.Id).ToHashSet();
+        foreach (var line in sequence.Lines)
+            if (!rosterIds.Contains(line.SpeakerPlayerId))
+                throw new ArgumentException("A dialogue speaker is not in this project.", nameof(sequence));
+        _dialogueSequences.Add(sequence);
+    }
+
+    public bool RemoveDialogueSequence(Guid sequenceId) =>
+        _dialogueSequences.RemoveAll(sequence => sequence.Id == sequenceId) > 0;
+
+    public DialogueSequence DialogueSequence(Guid sequenceId) =>
+        _dialogueSequences.FirstOrDefault(sequence => sequence.Id == sequenceId)
+        ?? throw new KeyNotFoundException("The requested dialogue sequence is not in this project.");
+
+    public IReadOnlyList<DialogueSequence> DialogueForPlay(Guid playId) =>
+        _dialogueSequences.Where(sequence => sequence.PlayId == playId).ToArray();
 
     public PlayerAppearance AppearanceFor(Guid playerId) =>
         _playerAppearances.TryGetValue(playerId, out var appearance)

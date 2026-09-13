@@ -26,7 +26,9 @@ public partial class Main : Node3D
     private CameraDirectorPanel _cameraDirector = null!;
     private PlayerStudioPanel _playerStudio = null!;
     private UniformStudioPanel _uniformStudio = null!;
+    private DialogueDirectorPanel _dialogueDirector = null!;
     private CameraDirectorController _cameraController = null!;
+    private DialoguePlaybackController _dialogueController = null!;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
 
@@ -54,6 +56,10 @@ public partial class Main : Node3D
         _sequence = new PlaySequenceController { Name = "PlaySequenceController" };
         AddChild(_sequence);
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
+
+        _dialogueController = new DialoguePlaybackController { Name = "DialoguePlaybackController" };
+        AddChild(_dialogueController);
+        _dialogueController.Configure(_pawns, _football, _previewCamera);
 
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
@@ -88,8 +94,12 @@ public partial class Main : Node3D
         _playerStudio.SpeechShapeCycleRequested += OnSpeechShapeCycleRequested;
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
+        _dialogueDirector.PreviewLineRequested += OnDialoguePreviewRequested;
+        _dialogueDirector.StatusChanged += message => _gameDirector.SetStatus(message);
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-pov-free-look"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-dialogue-audio"))
+            CallDeferred(nameof(RunDialogueAudioValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-pov-free-look"))
             CallDeferred(nameof(RunPovFreeLookValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-facing-pov"))
             CallDeferred(nameof(RunFacingPovValidation));
@@ -103,6 +113,23 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private async void RunDialogueAudioValidation()
+    {
+        var validator = new DialogueAudioValidator { Name = "DialogueAudioValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Dialogue and spatial-audio validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunPovFreeLookValidation()
@@ -322,6 +349,17 @@ public partial class Main : Node3D
         canvas.AddChild(_uniformStudio);
         _uniformStudio.Configure(_project);
 
+        _dialogueDirector = new DialogueDirectorPanel
+        {
+            Name = "DialogueDirector",
+            OffsetLeft = 400,
+            OffsetTop = 16,
+            OffsetRight = 1212,
+            OffsetBottom = 420
+        };
+        canvas.AddChild(_dialogueDirector);
+        _dialogueDirector.Configure(_project, _play);
+
         _director = new PlayDirectorPanel
         {
             Name = "PlayDirector",
@@ -391,11 +429,14 @@ public partial class Main : Node3D
         _cameraDirector.SetInteractionEnabled(false);
         _playerStudio.SetInteractionEnabled(false);
         _uniformStudio.SetInteractionEnabled(false);
+        _dialogueDirector.SetInteractionEnabled(false);
         _cameraController.StopCuts();
         _ = _cameraController.PlayCutsAsync(_project, _play);
         try
         {
-            await _sequence.RunAsync();
+            var dialogue = _dialogueController.PlaySequencesAsync(
+                _project.DialogueForPlay(_play.Id).Where(sequence => sequence.Context == DialogueSequenceContext.Play));
+            await System.Threading.Tasks.Task.WhenAll(_sequence.RunAsync(), dialogue);
         }
         catch (Exception exception)
         {
@@ -409,6 +450,7 @@ public partial class Main : Node3D
             _cameraDirector.SetInteractionEnabled(true);
             _playerStudio.SetInteractionEnabled(true);
             _uniformStudio.SetInteractionEnabled(true);
+            _dialogueDirector.SetInteractionEnabled(true);
             _cameraController.StopCuts();
             PreviewSelectedCamera();
         }
@@ -502,6 +544,8 @@ public partial class Main : Node3D
         _director.SetPlay(_play);
         _gameDirector.SetActivePlay(_play.Id);
         _cameraDirector.SetPlay(_play);
+        _dialogueController.StopAll();
+        _dialogueDirector.SetPlay(_play);
         ApplyFormation();
         _sequence.SetPlay(_play, _football.Position, OffenseTeam, DefenseTeam);
         PreviewSelectedCamera();
@@ -533,10 +577,28 @@ public partial class Main : Node3D
         _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         _playerStudio.SetProject(_project, _game);
         _uniformStudio.SetProject(_project);
+        _dialogueDirector.SetProject(_project, _play);
         ApplyFormation();
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
         _cameraController.Configure(_previewCamera, this, _pawns, _football);
+        _dialogueController.Configure(_pawns, _football, _previewCamera);
         PreviewSelectedCamera();
+    }
+
+    private async void OnDialoguePreviewRequested(DialogueLine line)
+    {
+        try
+        {
+            _dialogueController.StopAll();
+            _gameDirector.SetStatus($"Previewing: {line.Text}");
+            await _dialogueController.PreviewLineAsync(line);
+            _gameDirector.SetStatus("Dialogue preview complete");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _gameDirector.SetStatus(exception.Message);
+        }
     }
 
     private void OnCameraSelected(Guid cameraId)
