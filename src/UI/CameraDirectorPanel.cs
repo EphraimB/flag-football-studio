@@ -65,6 +65,8 @@ public partial class CameraDirectorPanel : PanelContainer
     private Button _recenterButton = null!;
     private SpinBox _fov = null!;
     private SpinBox _cutTime = null!;
+    private Label _selectedCameraBanner = null!;
+    private Label _cutSequenceSummary = null!;
 
     public event Action<Guid>? CameraSelected;
     public event Action? CreateRequested;
@@ -78,8 +80,13 @@ public partial class CameraDirectorPanel : PanelContainer
     public event Action<Guid, SidelineCameraSettings>? SidelineSettingsChanged;
     public event Action<Guid>? PlayerPovRecenterRequested;
     public event Action<Guid>? PreviewRequested;
+    public event Action? RunSelectedCameraRequested;
+    public event Action? RunWithCutsRequested;
     public event Action<Guid, double>? AddCutRequested;
     public event Action<Guid>? DeleteCutRequested;
+
+    public string SelectedCameraSummary => _selectedCameraBanner.Text;
+    public string CutSequenceSummary => _cutSequenceSummary.Text;
 
     public void Configure(GameProject project, Game game, PlayDefinition play, Guid activeCameraId)
     {
@@ -176,6 +183,20 @@ public partial class CameraDirectorPanel : PanelContainer
         title.AddThemeFontSizeOverride("font_size", 18);
         stack.AddChild(title);
 
+        _selectedCameraBanner = new Label
+        {
+            Text = "SELECTED CAMERA: —",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _selectedCameraBanner.AddThemeFontSizeOverride("font_size", 19);
+        _selectedCameraBanner.AddThemeColorOverride("font_color", new Color("ffe08a"));
+        stack.AddChild(CreateEmphasisPanel(_selectedCameraBanner, new Color("263449"), new Color("e0ad45")));
+
+        var libraryHeading = new Label { Text = "CAMERA LIBRARY" };
+        libraryHeading.AddThemeFontSizeOverride("font_size", 14);
+        stack.AddChild(libraryHeading);
+
         _cameraList = new ItemList { CustomMinimumSize = new Vector2(0, 62), SelectMode = ItemList.SelectModeEnum.Single };
         _cameraList.ItemSelected += OnCameraSelected;
         stack.AddChild(_cameraList);
@@ -189,7 +210,13 @@ public partial class CameraDirectorPanel : PanelContainer
         AddButton(cameraActions, "Rename", RequestRename);
         AddButton(cameraActions, "Duplicate", RequestDuplicate);
         AddButton(cameraActions, "Delete", RequestDelete);
-        AddButton(cameraActions, "Preview", RequestPreview);
+
+        BuildCameraSequenceSection(stack);
+
+        stack.AddChild(new HSeparator());
+        var propertiesHeading = new Label { Text = "CAMERA PROPERTIES" };
+        propertiesHeading.AddThemeFontSizeOverride("font_size", 16);
+        stack.AddChild(propertiesHeading);
 
         var typeRow = new HBoxContainer();
         stack.AddChild(typeRow);
@@ -279,19 +306,49 @@ public partial class CameraDirectorPanel : PanelContainer
         fovRow.AddChild(_fov);
         AddButton(fovRow, "Preview", RequestPreview);
 
-        stack.AddChild(new HSeparator());
-        stack.AddChild(new Label { Text = "TIMED CUTS" });
-        _cutList = new ItemList { CustomMinimumSize = new Vector2(0, 52), SelectMode = ItemList.SelectModeEnum.Single };
-        stack.AddChild(_cutList);
+    }
+
+    private void BuildCameraSequenceSection(Node parent)
+    {
+        var sequenceStack = new VBoxContainer();
+        sequenceStack.AddThemeConstantOverride("separation", 7);
+        var sequenceHeading = new Label
+        {
+            Text = "CAMERA SEQUENCE / TIMED CUTS",
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        sequenceHeading.AddThemeFontSizeOverride("font_size", 18);
+        sequenceHeading.AddThemeColorOverride("font_color", new Color("ffe08a"));
+        sequenceStack.AddChild(sequenceHeading);
+
+        var runActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        sequenceStack.AddChild(runActions);
+        AddButton(runActions, "Run Selected Camera", () => RunSelectedCameraRequested?.Invoke());
+        AddButton(runActions, "Run With Cuts", () => RunWithCutsRequested?.Invoke());
+
+        _cutSequenceSummary = new Label
+        {
+            Text = "CURRENT CUT SEQUENCE\n—",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        _cutSequenceSummary.AddThemeFontSizeOverride("font_size", 16);
+        _cutSequenceSummary.AddThemeColorOverride("font_color", Colors.White);
+        sequenceStack.AddChild(_cutSequenceSummary);
+
+        _cutList = new ItemList { CustomMinimumSize = new Vector2(0, 132), SelectMode = ItemList.SelectModeEnum.Single };
+        _cutList.AddThemeFontSizeOverride("font_size", 16);
+        sequenceStack.AddChild(_cutList);
 
         var cutActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
-        stack.AddChild(cutActions);
+        sequenceStack.AddChild(cutActions);
         cutActions.AddChild(new Label { Text = "At" });
         _cutTime = CreateSpinBox(0, 60, 0.1);
         _cutTime.Suffix = " s";
         cutActions.AddChild(_cutTime);
         AddButton(cutActions, "Add Cut", RequestAddCut);
         AddButton(cutActions, "Delete Cut", RequestDeleteCut);
+        parent.AddChild(CreateEmphasisPanel(sequenceStack, new Color("17283a"), new Color("e0ad45")));
     }
 
     private void BuildVectorRow(Node parent, string label, SpinBox[] values, double minimum, double maximum)
@@ -414,6 +471,7 @@ public partial class CameraDirectorPanel : PanelContainer
         if (_activeCameraId == Guid.Empty || !_project.Cameras.Any(camera => camera.Id == _activeCameraId))
             return;
         var camera = _project.Camera(_activeCameraId);
+        _selectedCameraBanner.Text = $"SELECTED CAMERA: {camera.Name}  •  {DisplayName(camera.Type)}";
         _nameEdit.Text = camera.Name;
         _typeOption.Select((int)camera.Type);
         SetVector(_position, camera.Position);
@@ -470,11 +528,22 @@ public partial class CameraDirectorPanel : PanelContainer
     {
         _cutIds.Clear();
         _cutList.Clear();
-        foreach (var cut in _project.CameraCutsFor(_play.Id))
+        var cuts = _project.CameraCutsFor(_play.Id);
+        var summary = new List<string>();
+        for (var index = 0; index < cuts.Count; index++)
         {
+            var cut = cuts[index];
+            var cameraName = _project.Camera(cut.CameraId).Name;
             _cutIds.Add(cut.Id);
-            _cutList.AddItem($"{cut.TimeSeconds:0.0}s  {_project.Camera(cut.CameraId).Name}");
+            _cutList.AddItem($"CUT {index + 1:00}   |   {cut.TimeSeconds:0.0}s   |   {cameraName}");
+            if (Math.Abs(cut.TimeSeconds) < 0.0001)
+                _cutList.SetItemCustomFgColor(index, new Color("ffe08a"));
+            summary.Add($"{cut.TimeSeconds:0.0}s {cameraName}");
         }
+
+        _cutSequenceSummary.Text = cuts.Count == 0
+            ? "CURRENT CUT SEQUENCE\nNo timed cuts — add the opening camera at 0.0s"
+            : $"CURRENT CUT SEQUENCE\n{string.Join("   →   ", summary)}";
     }
 
     private void UpdateFieldAvailability(bool panelEnabled)
@@ -662,6 +731,31 @@ public partial class CameraDirectorPanel : PanelContainer
         parent.AddChild(button);
         _buttons.Add(button);
         return button;
+    }
+
+    private static PanelContainer CreateEmphasisPanel(Control content, Color background, Color border)
+    {
+        var panel = new PanelContainer();
+        var style = new StyleBoxFlat
+        {
+            BgColor = background,
+            BorderColor = border,
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6,
+            CornerRadiusBottomRight = 6,
+            ContentMarginLeft = 10,
+            ContentMarginTop = 8,
+            ContentMarginRight = 10,
+            ContentMarginBottom = 8
+        };
+        panel.AddThemeStyleboxOverride("panel", style);
+        panel.AddChild(content);
+        return panel;
     }
 
     private static CameraVector ReadVector(IReadOnlyList<SpinBox> values) =>

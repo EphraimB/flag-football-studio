@@ -12,7 +12,19 @@ namespace FlagFootballStudio.Studio;
 
 public partial class Main : Node3D
 {
+    private enum StudioWorkspace
+    {
+        Game,
+        Play,
+        Cameras,
+        Players,
+        Uniforms,
+        Dialogue
+    }
+
     private readonly Dictionary<Guid, Node3D> _pawns = [];
+    private readonly Dictionary<StudioWorkspace, Control> _workspacePanels = [];
+    private readonly Dictionary<StudioWorkspace, Button> _workspaceButtons = [];
     private readonly PackedScene _fieldScene = GD.Load<PackedScene>("res://scenes/games/field.tscn");
     private readonly PackedScene _playerScene = GD.Load<PackedScene>("res://scenes/characters/player_pawn.tscn");
     private readonly JsonProjectFileStore _fileStore = new(new ProjectJsonSerializer());
@@ -93,6 +105,8 @@ public partial class Main : Node3D
         _cameraDirector.SidelineSettingsChanged += OnSidelineSettingsChanged;
         _cameraDirector.PlayerPovRecenterRequested += OnPlayerPovRecenterRequested;
         _cameraDirector.PreviewRequested += OnCameraPreviewRequested;
+        _cameraDirector.RunSelectedCameraRequested += OnRunSelectedCameraRequested;
+        _cameraDirector.RunWithCutsRequested += OnRunWithCutsRequested;
         _cameraDirector.AddCutRequested += OnAddCameraCutRequested;
         _cameraDirector.DeleteCutRequested += OnDeleteCameraCutRequested;
         _playerStudio.AppearanceChanged += OnPlayerAppearanceChanged;
@@ -113,7 +127,9 @@ public partial class Main : Node3D
         _dialogueDirector.RawAudioTestRequested += OnRawAudioTestRequested;
         _dialogueDirector.SpatialAudioTestRequested += OnSpatialAudioTestRequested;
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
+        if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
+            CallDeferred(nameof(RunWorkspaceValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
             CallDeferred(nameof(RunCameraProfileValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-local-tts"))
             CallDeferred(nameof(RunLocalTtsValidation));
@@ -135,6 +151,34 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private void RunWorkspaceValidation()
+    {
+        try
+        {
+            foreach (var workspace in Enum.GetValues<StudioWorkspace>())
+            {
+                SelectWorkspace(workspace);
+                if (!_workspacePanels[workspace].Visible || _workspacePanels.Count(entry => entry.Value.Visible) != 1)
+                    throw new InvalidOperationException($"Workspace {workspace} did not isolate its tool panel.");
+            }
+
+            SelectWorkspace(StudioWorkspace.Cameras);
+            if (!_cameraDirector.SelectedCameraSummary.Contains("Broadcast Wide", StringComparison.Ordinal))
+                throw new InvalidOperationException("The selected camera is not prominent in the Cameras workspace.");
+            if (!_cameraDirector.CutSequenceSummary.Contains("0.0s Broadcast Wide", StringComparison.Ordinal))
+                throw new InvalidOperationException("The opening 0.0s Broadcast Wide cut is not prominent.");
+
+            SelectWorkspace(StudioWorkspace.Game);
+            GD.Print("Workspace layout validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private async void RunCameraProfileValidation()
@@ -377,77 +421,124 @@ public partial class Main : Node3D
         var canvas = new CanvasLayer();
         AddChild(canvas);
 
+        BuildWorkspaceNavigation(canvas);
+
         _gameDirector = new GameDirectorPanel
         {
-            Name = "GameDirector",
-            OffsetLeft = 16,
-            OffsetTop = 16,
-            OffsetRight = 390,
-            OffsetBottom = 410
+            Name = "GameDirector"
         };
+        LayoutWorkspacePanel(_gameDirector);
         canvas.AddChild(_gameDirector);
         _gameDirector.Configure(_project, _play.Id);
         _statusLabel = _gameDirector.StatusLabel;
 
         _cameraDirector = new CameraDirectorPanel
         {
-            Name = "CameraDirector",
-            OffsetLeft = 16,
-            OffsetTop = 420,
-            OffsetRight = 390,
-            OffsetBottom = 984
+            Name = "CameraDirector"
         };
+        LayoutWorkspacePanel(_cameraDirector);
         canvas.AddChild(_cameraDirector);
         _cameraDirector.Configure(_project, _game, _play, _selectedCameraId);
 
         _playerStudio = new PlayerStudioPanel
         {
-            Name = "PlayerStudio",
-            OffsetLeft = 400,
-            OffsetTop = 530,
-            OffsetRight = 790,
-            OffsetBottom = 984
+            Name = "PlayerStudio"
         };
+        LayoutWorkspacePanel(_playerStudio);
         canvas.AddChild(_playerStudio);
         _playerStudio.Configure(_project, _game);
 
         _uniformStudio = new UniformStudioPanel
         {
-            Name = "UniformStudio",
-            OffsetLeft = 800,
-            OffsetTop = 430,
-            OffsetRight = 1212,
-            OffsetBottom = 984
+            Name = "UniformStudio"
         };
+        LayoutWorkspacePanel(_uniformStudio);
         canvas.AddChild(_uniformStudio);
         _uniformStudio.Configure(_project);
 
         _dialogueDirector = new DialogueDirectorPanel
         {
-            Name = "DialogueDirector",
-            OffsetLeft = 400,
-            OffsetTop = 16,
-            OffsetRight = 1212,
-            OffsetBottom = 420
+            Name = "DialogueDirector"
         };
+        LayoutWorkspacePanel(_dialogueDirector);
         canvas.AddChild(_dialogueDirector);
         _dialogueDirector.Configure(_project, _play, _audioAssetStore);
 
         _director = new PlayDirectorPanel
         {
             Name = "PlayDirector",
-            AnchorLeft = 0.68f,
-            AnchorTop = 0,
-            AnchorRight = 1,
-            AnchorBottom = 1,
-            OffsetLeft = 0,
-            OffsetTop = 12,
-            OffsetRight = -12,
-            OffsetBottom = -12,
             MouseFilter = Control.MouseFilterEnum.Stop
         };
+        LayoutWorkspacePanel(_director);
         canvas.AddChild(_director);
         _director.Configure(_game, _play, _project.Possession.Id);
+
+        RegisterWorkspace(StudioWorkspace.Game, _gameDirector);
+        RegisterWorkspace(StudioWorkspace.Play, _director);
+        RegisterWorkspace(StudioWorkspace.Cameras, _cameraDirector);
+        RegisterWorkspace(StudioWorkspace.Players, _playerStudio);
+        RegisterWorkspace(StudioWorkspace.Uniforms, _uniformStudio);
+        RegisterWorkspace(StudioWorkspace.Dialogue, _dialogueDirector);
+        SelectWorkspace(StudioWorkspace.Game);
+    }
+
+    private void BuildWorkspaceNavigation(CanvasLayer canvas)
+    {
+        var navigationPanel = new PanelContainer
+        {
+            Name = "WorkspaceNavigation",
+            AnchorLeft = 0.5f,
+            AnchorRight = 0.5f,
+            OffsetLeft = -390,
+            OffsetTop = 10,
+            OffsetRight = 390,
+            OffsetBottom = 58
+        };
+        canvas.AddChild(navigationPanel);
+
+        var navigation = new HBoxContainer
+        {
+            Alignment = BoxContainer.AlignmentMode.Center,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+        };
+        navigation.AddThemeConstantOverride("separation", 8);
+        navigationPanel.AddChild(navigation);
+        foreach (var workspace in Enum.GetValues<StudioWorkspace>())
+        {
+            var capturedWorkspace = workspace;
+            var button = new Button
+            {
+                Text = workspace.ToString(),
+                ToggleMode = true,
+                CustomMinimumSize = new Vector2(112, 36)
+            };
+            button.Pressed += () => SelectWorkspace(capturedWorkspace);
+            navigation.AddChild(button);
+            _workspaceButtons.Add(workspace, button);
+        }
+    }
+
+    private static void LayoutWorkspacePanel(Control panel)
+    {
+        panel.AnchorLeft = 1;
+        panel.AnchorTop = 0;
+        panel.AnchorRight = 1;
+        panel.AnchorBottom = 1;
+        panel.OffsetLeft = -760;
+        panel.OffsetTop = 70;
+        panel.OffsetRight = -16;
+        panel.OffsetBottom = -16;
+    }
+
+    private void RegisterWorkspace(StudioWorkspace workspace, Control panel) =>
+        _workspacePanels.Add(workspace, panel);
+
+    private void SelectWorkspace(StudioWorkspace workspace)
+    {
+        foreach (var entry in _workspacePanels)
+            entry.Value.Visible = entry.Key == workspace;
+        foreach (var entry in _workspaceButtons)
+            entry.Value.ButtonPressed = entry.Key == workspace;
     }
 
     private void ApplyFormation()
@@ -491,7 +582,13 @@ public partial class Main : Node3D
         SwitchToPlay(resetPlay.Id, "Formation reset");
     }
 
-    private async void OnRunPlayRequested()
+    private async void OnRunPlayRequested() => await RunPlayAsync(useCameraCuts: true);
+
+    private async void OnRunSelectedCameraRequested() => await RunPlayAsync(useCameraCuts: false);
+
+    private async void OnRunWithCutsRequested() => await RunPlayAsync(useCameraCuts: true);
+
+    private async System.Threading.Tasks.Task RunPlayAsync(bool useCameraCuts)
     {
         if (_sequence.IsRunning)
             return;
@@ -504,7 +601,10 @@ public partial class Main : Node3D
         _uniformStudio.SetInteractionEnabled(false);
         _dialogueDirector.SetInteractionEnabled(false);
         _cameraController.StopCuts();
-        _ = _cameraController.PlayCutsAsync(_project, _play);
+        if (useCameraCuts)
+            _ = _cameraController.PlayCutsAsync(_project, _play);
+        else
+            PreviewSelectedCamera();
         try
         {
             var dialogue = _dialogueController.PlaySequencesAsync(
