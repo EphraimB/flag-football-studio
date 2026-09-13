@@ -36,8 +36,9 @@ public partial class DialogueDirectorPanel : PanelContainer
     private ProjectAudioAssetStore _audioAssets = null!;
     private FileDialog _audioDialog = null!;
     private Label _audioStatus = null!;
+    private Label _audioFilename = null!;
     private Label _clipDuration = null!;
-    private Label _lipSyncStatus = null!;
+    private CheckButton _developerToneEnabled = null!;
     private ItemList _visemeList = null!;
     private OptionButton _visemeShape = null!;
     private SpinBox _visemeTime = null!;
@@ -142,8 +143,15 @@ public partial class DialogueDirectorPanel : PanelContainer
         AddButton(actions, "Delete Line", DeleteLine);
         AddButton(actions, "Preview Line", PreviewLine);
 
-        stack.AddChild(new HSeparator());
-        stack.AddChild(new Label { Text = "VOICE / AUDIO", HorizontalAlignment = HorizontalAlignment.Center });
+        var voiceSeparator = new HSeparator();
+        stack.AddChild(voiceSeparator);
+        var voiceHeading = new Label { Text = "VOICE / AUDIO", HorizontalAlignment = HorizontalAlignment.Center };
+        voiceHeading.AddThemeFontSizeOverride("font_size", 16);
+        stack.AddChild(voiceHeading);
+        const string audioHelpText = "Dialogue text does not generate speech automatically. Import a voice recording or generated speech audio to make the player talk.";
+        var audioHelp = new Label { Text = audioHelpText, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        audioHelp.AddThemeColorOverride("font_color", new Color("c8d6e5"));
+        stack.AddChild(audioHelp);
         var voiceGrid = new GridContainer { Columns = 6 };
         stack.AddChild(voiceGrid);
         _voiceName = new LineEdit(); AddField(voiceGrid, "Voice", _voiceName);
@@ -153,15 +161,31 @@ public partial class DialogueDirectorPanel : PanelContainer
         _voiceRate = Number(0.5, 2, 0.05, 1); AddField(voiceGrid, "Rate metadata", _voiceRate);
         AddButton(voiceGrid, "Save Voice", SaveVoiceProfile);
 
-        var audioRow = new HBoxContainer();
-        stack.AddChild(audioRow);
-        AddButton(audioRow, "Choose WAV/OGG/MP3", ChooseAudio);
-        AddButton(audioRow, "Remove Audio", RemoveAudio);
-        AddButton(audioRow, "Preview Clip", PreviewLine);
-        _audioStatus = new Label { Text = "No audio assigned", SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        audioRow.AddChild(_audioStatus);
-        _clipDuration = new Label { Text = "Duration: —" }; audioRow.AddChild(_clipDuration);
-        _lipSyncStatus = new Label { Text = "Generic fallback" }; audioRow.AddChild(_lipSyncStatus);
+        var audioActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(audioActions);
+        var importButton = AddButton(audioActions, "Import Audio...", ChooseAudio);
+        importButton.TooltipText = audioHelpText;
+        var previewAudioButton = AddButton(audioActions, "Preview Audio", PreviewAudio);
+        previewAudioButton.TooltipText = "Preview the assigned speech clip with spatial audio and the selected lip-sync behavior.";
+        AddButton(audioActions, "Remove Audio", RemoveAudio);
+        var audioInfo = new GridContainer { Columns = 6 };
+        stack.AddChild(audioInfo);
+        audioInfo.AddChild(new Label { Text = "Status" });
+        _audioStatus = new Label { Text = "No audio assigned" };
+        _audioStatus.TooltipText = audioHelpText;
+        audioInfo.AddChild(_audioStatus);
+        audioInfo.AddChild(new Label { Text = "Imported file" });
+        _audioFilename = new Label { Text = "—", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        audioInfo.AddChild(_audioFilename);
+        audioInfo.AddChild(new Label { Text = "Clip duration" });
+        _clipDuration = new Label { Text = "—" }; audioInfo.AddChild(_clipDuration);
+
+        _developerToneEnabled = new CheckButton
+        {
+            Text = "Developer tone for unrecorded previews",
+            TooltipText = "Explicitly enables the synthetic test tone only when Preview Line has no assigned speech audio."
+        };
+        stack.AddChild(_developerToneEnabled);
 
         stack.AddChild(new Label { Text = "MANUAL LIP SYNC" });
         var lipRow = new HBoxContainer();
@@ -184,11 +208,20 @@ public partial class DialogueDirectorPanel : PanelContainer
         {
             FileMode = FileDialog.FileModeEnum.OpenFile,
             Access = FileDialog.AccessEnum.Filesystem,
-            Title = "Import Voice Audio"
+            Title = "Import Voice Audio",
+            UseNativeDialog = true
         };
         _audioDialog.Filters = ["*.wav ; WAV Audio", "*.ogg ; OGG Vorbis", "*.mp3 ; MP3 Audio"];
         _audioDialog.FileSelected += ImportAudio;
         AddChild(_audioDialog);
+
+        stack.MoveChild(voiceSeparator, 3);
+        stack.MoveChild(voiceHeading, 4);
+        stack.MoveChild(audioHelp, 5);
+        stack.MoveChild(audioActions, 6);
+        stack.MoveChild(audioInfo, 7);
+        stack.MoveChild(_developerToneEnabled, 8);
+        stack.MoveChild(voiceGrid, 9);
 
         _speaker.ItemSelected += _ => RefreshVoiceProfile();
     }
@@ -282,7 +315,26 @@ public partial class DialogueDirectorPanel : PanelContainer
 
     private void PreviewLine()
     {
-        if (_selectedLineId != Guid.Empty) PreviewLineRequested?.Invoke(SelectedLine());
+        if (_selectedLineId == Guid.Empty) return;
+        var line = SelectedLine();
+        if (line.AudioReference is null && !_developerToneEnabled.ButtonPressed)
+        {
+            StatusChanged?.Invoke("No speech audio assigned. Import audio or explicitly enable the developer preview tone.");
+            return;
+        }
+        PreviewLineRequested?.Invoke(line);
+    }
+
+    private void PreviewAudio()
+    {
+        if (_selectedLineId == Guid.Empty) return;
+        var line = SelectedLine();
+        if (line.AudioReference is null)
+        {
+            StatusChanged?.Invoke("No audio assigned. Use Import Audio... to choose a WAV, OGG, or MP3 recording.");
+            return;
+        }
+        PreviewLineRequested?.Invoke(line);
     }
 
     private void RefreshSequences()
@@ -428,7 +480,14 @@ public partial class DialogueDirectorPanel : PanelContainer
 
     private void PreviewFromTime()
     {
-        if (_selectedLineId != Guid.Empty) PreviewFromTimeRequested?.Invoke(SelectedLine(), _seekTime.Value);
+        if (_selectedLineId == Guid.Empty) return;
+        var line = SelectedLine();
+        if (line.AudioReference is null && !_developerToneEnabled.ButtonPressed)
+        {
+            StatusChanged?.Invoke("No speech audio assigned. Import audio or explicitly enable the developer preview tone.");
+            return;
+        }
+        PreviewFromTimeRequested?.Invoke(line, _seekTime.Value);
     }
 
     private void ReplaceSelectedLine(VoiceAudioReference? audio, IEnumerable<VisemeEvent> events)
@@ -444,14 +503,20 @@ public partial class DialogueDirectorPanel : PanelContainer
 
     private void RefreshAudioAndVisemes(DialogueLine line)
     {
-        _audioStatus.Text = line.AudioReference?.RelativePath ?? "No audio assigned";
-        _lipSyncStatus.Text = line.HasManualLipSync ? "Manual/timestamped lip sync" : "Generic fallback mouth motion";
+        _audioStatus.Text = line.AudioReference is null
+            ? "No audio assigned"
+            : line.HasManualLipSync
+                ? "Audio assigned — manual lip sync"
+                : "Audio assigned — generic mouth motion";
+        _audioFilename.Text = line.AudioReference is null
+            ? "—"
+            : System.IO.Path.GetFileName(line.AudioReference.RelativePath);
         if (line.AudioReference is not null)
         {
-            try { _clipDuration.Text = $"Duration: {VoiceAudioStreamLoader.Duration(_audioAssets, line.AudioReference):0.00}s"; }
-            catch { _clipDuration.Text = "Duration: missing/unreadable"; }
+            try { _clipDuration.Text = $"{VoiceAudioStreamLoader.Duration(_audioAssets, line.AudioReference):0.00}s"; }
+            catch { _clipDuration.Text = "Missing/unreadable"; }
         }
-        else _clipDuration.Text = "Duration: —";
+        else _clipDuration.Text = "—";
         _visemeList.Clear();
         foreach (var item in line.LipSyncEvents)
             _visemeList.AddItem($"{item.StartTime:0.00}s  {item.Viseme}  {item.BlendStrength:0.00}");
@@ -471,5 +536,5 @@ public partial class DialogueDirectorPanel : PanelContainer
 
     private static SpinBox Number(double min, double max, double step, double value) => new() { MinValue = min, MaxValue = max, Step = step, Value = value };
     private static void AddField(GridContainer grid, string label, Control control) { grid.AddChild(new Label { Text = label }); grid.AddChild(control); }
-    private static void AddButton(Container parent, string text, Action action) { var button = new Button { Text = text }; button.Pressed += action; parent.AddChild(button); }
+    private static Button AddButton(Container parent, string text, Action action) { var button = new Button { Text = text }; button.Pressed += action; parent.AddChild(button); return button; }
 }

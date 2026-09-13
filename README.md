@@ -300,11 +300,16 @@ data receive default Gold and Navy home/away uniforms when loaded.
 - Under **Voice / Audio**, edit the selected speaker's profile name,
   description, default volume, pitch in semitones, and speaking-rate metadata.
   Choose **Save Voice** to persist those defaults.
-- **Choose WAV/OGG/MP3** copies a selected recording into the portable project
-  `audio/` directory and assigns its relative reference to the line. The panel
-  shows decoded clip duration and whether the line uses manual/timestamped lip
-  sync or generic fallback motion. **Remove Audio** removes only the assignment;
-  it deliberately leaves the imported file intact so another line can reuse it.
+- **Import Audio...** opens the operating system's native WAV, OGG, and MP3
+  picker, copies the recording into the portable project `audio/` directory,
+  and assigns its relative reference to the selected line. The always-visible
+  status row shows the imported filename, decoded clip duration, and exactly
+  whether there is no assignment, generic mouth motion, or manual lip sync.
+  **Preview Audio** plays the assigned recording; **Remove Audio** removes only
+  the assignment and deliberately leaves the imported file available for reuse.
+- Dialogue text never generates speech automatically. **Preview Line** reports
+  a missing recording unless **Developer tone for unrecorded previews** is
+  explicitly enabled; that option is off by default.
 - The manual lip-sync list supports adding/updating a viseme with a start time,
   optional end time, and blend strength, selecting and editing existing events,
   and deleting events. **Preview From Time** seeks the real audio and evaluates
