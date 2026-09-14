@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using FlagFootballStudio.Domain;
+using FlagFootballStudio.Tts;
 using Godot;
 
 namespace FlagFootballStudio.Presentation;
@@ -80,6 +81,8 @@ public partial class VenueAudioController : Node
     private IReadOnlyDictionary<Guid, Node3D> _pawns = new Dictionary<Guid, Node3D>();
     private IReadOnlyDictionary<Guid, PlayerVoiceProfile> _voiceProfiles =
         new Dictionary<Guid, PlayerVoiceProfile>();
+    private SpeechGenerationService? _speechGeneration;
+    private DialoguePlaybackController? _dialoguePlayback;
     private VenueEnvironment _venue = null!;
     private FootballView _football = null!;
     private Camera3D _listener = null!;
@@ -99,9 +102,15 @@ public partial class VenueAudioController : Node
     public int PeakConcurrentSpatialSources { get; private set; }
     public int PlayedAmbientConversationCount { get; private set; }
     public int SuppressedAmbientConversationCount { get; private set; }
+    public Guid? LastAmbientDialogueLineId { get; private set; }
+    public int LastAmbientPlaybackThreadId { get; private set; }
+    public string LastAmbientSkippedReason { get; private set; } = "No ambient phrase requested yet.";
     public bool DevelopmentConversationFallbackEnabled { get; set; }
     public Func<AmbientConversationCue, AudioStream?>? ConfiguredVoiceResolver { get; set; }
     public bool AuthoredDialogueActive => _featuredDialogueCount + _naturalDialogueCount > 0;
+    public AmbientSpeechCacheDiagnostics AmbientTtsDiagnostics =>
+        _speechGeneration?.AmbientDiagnostics ?? default;
+    public event Action<string>? AmbientTtsDiagnosticsChanged;
     public Camera3D ListenerCamera => _listener;
     public int PersistentSourcesPlaying => _sources.Take(_persistentSourceCount)
         .Count(source => GodotObject.IsInstanceValid(source.Source) && source.Source.Playing);
@@ -140,7 +149,9 @@ public partial class VenueAudioController : Node
         IReadOnlyDictionary<Guid, Node3D> pawns,
         FootballView football,
         Camera3D listener,
-        IReadOnlyDictionary<Guid, PlayerVoiceProfile>? voiceProfiles = null)
+        IReadOnlyDictionary<Guid, PlayerVoiceProfile>? voiceProfiles = null,
+        SpeechGenerationService? speechGeneration = null,
+        DialoguePlaybackController? dialoguePlayback = null)
     {
         StopAllSources();
         if (!_audioCacheAcquired)
@@ -153,6 +164,8 @@ public partial class VenueAudioController : Node
         _football = football ?? throw new ArgumentNullException(nameof(football));
         _listener = listener ?? throw new ArgumentNullException(nameof(listener));
         _voiceProfiles = voiceProfiles ?? new Dictionary<Guid, PlayerVoiceProfile>();
+        _speechGeneration = speechGeneration;
+        _dialoguePlayback = dialoguePlayback;
         foreach (var layer in Enum.GetValues<VenueAudioLayer>())
             _currentGains[layer] = TargetGain(layer);
         BuildPersistentLayers();
@@ -174,6 +187,8 @@ public partial class VenueAudioController : Node
         _nextFootstepTimes.Clear();
         PlayedAmbientConversationCount = 0;
         SuppressedAmbientConversationCount = 0;
+        LastAmbientDialogueLineId = null;
+        LastAmbientSkippedReason = "Waiting for the next scheduled ambient phrase.";
         _conversationSchedule = BuildConversationSchedule(simulation, _pawns, _voiceProfiles);
         _nextConversationIndex = 0;
     }
@@ -245,6 +260,7 @@ public partial class VenueAudioController : Node
 
     public void SetAuthoredDialogueActivity(AuthoredDialoguePriority priority, bool active)
     {
+        if (active) _dialoguePlayback?.StopAmbientLines();
         if (priority == AuthoredDialoguePriority.Featured)
             _featuredDialogueCount = Math.Max(0, _featuredDialogueCount + (active ? 1 : -1));
         else
@@ -456,17 +472,46 @@ public partial class VenueAudioController : Node
 
     private void TryPlayAmbientConversation(AmbientConversationCue cue)
     {
-        if (!Settings.AmbientConversationsEnabled || AuthoredDialogueActive)
+        if (!Settings.AmbientConversationsEnabled)
         {
-            SuppressedAmbientConversationCount++;
+            SkipAmbient("Ambient conversations are disabled.");
+            return;
+        }
+        if (AuthoredDialogueActive || (_dialoguePlayback?.ActiveAuthoredLineCount ?? 0) > 0)
+        {
+            SkipAmbient("Authored dialogue has priority.");
+            return;
+        }
+        if ((_dialoguePlayback?.ActiveAmbientLineCount ?? 0) > 0)
+        {
+            SkipAmbient("Another ambient player phrase is still playing.");
             return;
         }
         if (!_pawns.TryGetValue(cue.SpeakerPlayerId, out var speaker) ||
             !_pawns.TryGetValue(cue.ListenerPlayerId, out var listener) ||
             speaker.GlobalPosition.DistanceTo(listener.GlobalPosition) > 8)
         {
-            SuppressedAmbientConversationCount++;
+            SkipAmbient("The speaker/listener is unavailable or no longer nearby.");
             return;
+        }
+
+        if (CurrentLayerGain(VenueAudioLayer.PlayerChatter) <= 0.0001f)
+        {
+            SkipAmbient("Player chatter volume is muted.");
+            return;
+        }
+
+        if (cue.HasConfiguredVoice && _speechGeneration is not null && _dialoguePlayback is not null &&
+            _voiceProfiles.TryGetValue(cue.SpeakerPlayerId, out var profile))
+        {
+            var resolution = _speechGeneration.ResolveOrQueueAmbient(profile, cue.Text);
+            if (resolution.State == AmbientSpeechResolutionState.Ready && resolution.Clip is not null)
+            {
+                StartGeneratedAmbientConversation(cue, resolution.Clip);
+                return;
+            }
+            SkipAmbient(resolution.Reason ?? $"Ambient TTS {resolution.State}.");
+            if (!DevelopmentConversationFallbackEnabled) return;
         }
 
         AudioStream? stream = cue.HasConfiguredVoice ? ConfiguredVoiceResolver?.Invoke(cue) : null;
@@ -475,7 +520,9 @@ public partial class VenueAudioController : Node
         if (stream is null)
         {
             // Text remains a deterministic presentation cue; no voice is fabricated when none is configured.
-            SuppressedAmbientConversationCount++;
+            SkipAmbient(cue.HasConfiguredVoice
+                ? "Configured voice audio is not ready; no generic voice was substituted."
+                : "The speaking player has no configured local TTS voice.");
             return;
         }
         var anchor = speaker is PlayerPawn pawn ? pawn.MouthAudioAnchor : speaker;
@@ -484,6 +531,72 @@ public partial class VenueAudioController : Node
         if (speaker is PlayerPawn speakingPawn)
             speakingPawn.StartSpeechShapeCycle(0.13f);
         PlayedAmbientConversationCount++;
+        LastAmbientSkippedReason = "Development fallback played explicitly.";
+        PublishAmbientDiagnostics();
+    }
+
+    private void StartGeneratedAmbientConversation(AmbientConversationCue cue, AmbientSpeechClip clip)
+    {
+        if (_dialoguePlayback is null || !_pawns.TryGetValue(cue.SpeakerPlayerId, out var node) ||
+            node is not PlayerPawn)
+        {
+            SkipAmbient("The speaking player was removed before cached speech could play.");
+            return;
+        }
+        try
+        {
+            var lineId = Guid.NewGuid();
+            var line = new DialogueLine(lineId, cue.SpeakerPlayerId, 0, clip.DurationSeconds,
+                cue.Text, Math.Clamp(0.72f * CurrentLayerGain(VenueAudioLayer.PlayerChatter), 0, 1),
+                SpeechStyle.Normal, 10, cue.ListenerPlayerId, null,
+                DialogueGazeTargetKind.ListenerPlayer, audioReference: clip.AudioReference,
+                lipSyncEvents: clip.LipSyncEvents, lipSyncSource: clip.LipSyncSource);
+            LastAmbientDialogueLineId = lineId;
+            LastAmbientPlaybackThreadId = System.Environment.CurrentManagedThreadId;
+            var playback = _dialoguePlayback.PlayAmbientLineAsync(line);
+            if (_dialoguePlayback.AmbientSourceFor(lineId) is null)
+            {
+                SkipAmbient("Ambient playback yielded to authored or already-playing speech.");
+                return;
+            }
+            PlayedAmbientConversationCount++;
+            LastAmbientSkippedReason = $"Playing cached {clip.LipSyncSource} speech for {cue.SpeakerPlayerId}.";
+            PublishAmbientDiagnostics();
+            _ = ObserveAmbientPlaybackAsync(playback, cue.Text);
+        }
+        catch (Exception exception)
+        {
+            _speechGeneration?.InvalidateAmbientClip(clip.CacheKey);
+            GD.PushWarning($"Ambient TTS skipped for '{cue.Text}': {exception.Message}");
+            SkipAmbient($"Ambient audio load/play failed: {exception.Message}");
+        }
+    }
+
+    private async Task ObserveAmbientPlaybackAsync(Task playback, string phrase)
+    {
+        try { await playback; }
+        catch (Exception exception)
+        {
+            GD.PushWarning($"Ambient TTS playback failed for '{phrase}': {exception.Message}");
+            LastAmbientSkippedReason = $"Ambient playback failed: {exception.Message}";
+            PublishAmbientDiagnostics();
+        }
+    }
+
+    private void SkipAmbient(string reason)
+    {
+        SuppressedAmbientConversationCount++;
+        LastAmbientSkippedReason = reason;
+        GD.Print($"Ambient conversation skipped: {reason}");
+        PublishAmbientDiagnostics();
+    }
+
+    private void PublishAmbientDiagnostics()
+    {
+        var diagnostics = AmbientTtsDiagnostics;
+        AmbientTtsDiagnosticsChanged?.Invoke(
+            $"Ambient TTS — hits {diagnostics.Hits}, misses {diagnostics.Misses}, " +
+            $"pending {diagnostics.Pending}/{diagnostics.MaximumPending}; {LastAmbientSkippedReason}");
     }
 
     private void PlayOneShot(Node3D parent, VenueAudioLayer layer, AudioStream stream,
@@ -516,7 +629,12 @@ public partial class VenueAudioController : Node
             _oneShotRemaining.Remove(source);
             _sources.RemoveAll(item => item.Source == source);
             _oneShots.Remove(source);
-            if (GodotObject.IsInstanceValid(source)) source.QueueFree();
+            if (GodotObject.IsInstanceValid(source))
+            {
+                source.Stop();
+                source.Stream = null;
+                source.QueueFree();
+            }
         }
     }
 
@@ -627,6 +745,7 @@ public partial class VenueAudioController : Node
             if (GodotObject.IsInstanceValid(registered.Source))
             {
                 registered.Source.Stop();
+                registered.Source.Stream = null;
                 registered.Source.Free();
             }
         _sources.Clear();

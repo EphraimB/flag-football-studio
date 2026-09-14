@@ -26,6 +26,8 @@ public partial class DialoguePlaybackController : Node
 
     public int ActiveLineCount => _activeLines.Count;
     public int AudibleLineCount => _activeLines.Values.Count(line => line.Audible);
+    public int ActiveAmbientLineCount => _activeLines.Values.Count(line => line.IsAmbient);
+    public int ActiveAuthoredLineCount => _activeLines.Values.Count(line => !line.IsAmbient);
     public int PeakConcurrentLineCount { get; private set; }
     public Camera3D ListenerCamera => _listenerCamera;
     public Vector3 ListenerPosition => _listenerCamera.GlobalPosition;
@@ -54,14 +56,18 @@ public partial class DialoguePlaybackController : Node
     public Task PreviewLineAsync(DialogueLine line, double seekSeconds = 0) =>
         PlayLineAsync(line, _generation, true, true, seekSeconds, AuthoredDialoguePriority.Featured);
 
+    public Task PlayAmbientLineAsync(DialogueLine line) =>
+        PlayLineAsync(line, _generation, true, false, 0, AuthoredDialoguePriority.Natural, true);
+
     public void StopAll()
     {
         _generation++;
         foreach (var active in _activeLines.Values.ToArray())
         {
             active.Source.Stop();
+            active.Source.Stream = null;
             active.Source.QueueFree();
-            if (active.Audible)
+            if (active.Audible && !active.IsAmbient)
                 DialogueActivityChanged?.Invoke(active.Priority, false);
         }
         _activeLines.Clear();
@@ -75,6 +81,24 @@ public partial class DialoguePlaybackController : Node
 
     public LipSyncPlaybackMode? LipSyncModeFor(Guid lineId) =>
         _activeLines.TryGetValue(lineId, out var active) ? active.LipSyncMode : null;
+
+    public AudioStreamPlayer3D? AmbientSourceFor(Guid lineId) =>
+        _activeLines.TryGetValue(lineId, out var active) && active.IsAmbient ? active.Source : null;
+
+    public void StopAmbientLines()
+    {
+        foreach (var entry in _activeLines.Where(entry => entry.Value.IsAmbient).ToArray())
+        {
+            var active = entry.Value;
+            active.Source.Stop();
+            active.Source.Stream = null;
+            active.Source.QueueFree();
+            _activeLines.Remove(entry.Key);
+            if (_activeLines.Values.All(candidate => candidate.Speaker.Player?.Id != active.Line.SpeakerPlayerId) &&
+                _speakerSnapshots.Remove(active.Line.SpeakerPlayerId, out var snapshot))
+                snapshot.Restore();
+        }
+    }
 
     public static float StyleRangeMultiplier(SpeechStyle style) => style switch
     {
@@ -111,9 +135,19 @@ public partial class DialoguePlaybackController : Node
     }
 
     private async Task PlayLineAsync(DialogueLine line, int generation, bool honorGeneration,
-        bool allowPlaceholderTone, double seekSeconds, AuthoredDialoguePriority priority)
+        bool allowPlaceholderTone, double seekSeconds, AuthoredDialoguePriority priority,
+        bool isAmbient = false)
     {
         if (honorGeneration && generation != _generation) return;
+        if (isAmbient)
+        {
+            if (ActiveAuthoredLineCount > 0 || ActiveAmbientLineCount > 0) return;
+        }
+        else
+        {
+            // Authored dialogue always wins before its speaker snapshot is taken.
+            StopAmbientLines();
+        }
         if (!_pawns.TryGetValue(line.SpeakerPlayerId, out var node) || node is not PlayerPawn speaker)
             throw new InvalidOperationException("Dialogue speaker is not present in the 3D scene.");
 
@@ -139,8 +173,8 @@ public partial class DialoguePlaybackController : Node
             _ => LipSyncPlaybackMode.GenericFallback
         };
         var audible = source.Stream is not null;
-        _activeLines[line.Id] = new ActiveLine(line, speaker, source, lipSyncMode, priority, audible);
-        if (audible)
+        _activeLines[line.Id] = new ActiveLine(line, speaker, source, lipSyncMode, priority, audible, isAmbient);
+        if (audible && !isAmbient)
             DialogueActivityChanged?.Invoke(priority, true);
         PeakConcurrentLineCount = Math.Max(PeakConcurrentLineCount, ActiveLineCount);
 
@@ -164,8 +198,9 @@ public partial class DialoguePlaybackController : Node
 
         if (!_activeLines.Remove(line.Id, out var active)) return;
         active.Source.Stop();
+        active.Source.Stream = null;
         active.Source.QueueFree();
-        if (active.Audible)
+        if (active.Audible && !active.IsAmbient)
             DialogueActivityChanged?.Invoke(active.Priority, false);
         if (_activeLines.Values.All(candidate => candidate.Speaker.Player?.Id != line.SpeakerPlayerId) &&
             _speakerSnapshots.Remove(line.SpeakerPlayerId, out var snapshot))
@@ -425,7 +460,8 @@ public partial class DialoguePlaybackController : Node
         AudioStreamPlayer3D Source,
         LipSyncPlaybackMode LipSyncMode,
         AuthoredDialoguePriority Priority,
-        bool Audible);
+        bool Audible,
+        bool IsAmbient);
 
     private sealed class SpeakerSnapshot
     {

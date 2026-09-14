@@ -41,6 +41,36 @@ public sealed class ProjectAudioAssetStore
         return reference;
     }
 
+    public VoiceAudioReference CreateAmbientGeneratedWaveReference(string cacheKey)
+    {
+        if (string.IsNullOrWhiteSpace(cacheKey) || cacheKey.Any(character => !char.IsAsciiHexDigit(character)))
+            throw new ArgumentException("A hexadecimal ambient speech cache key is required.", nameof(cacheKey));
+        var reference = new VoiceAudioReference(
+            $"audio/generated/ambient/{cacheKey.ToLowerInvariant()}.wav", VoiceAudioFormat.Wav);
+        Directory.CreateDirectory(Path.GetDirectoryName(Resolve(reference))!);
+        return reference;
+    }
+
+    public string AmbientMetadataPath(VoiceAudioReference reference)
+    {
+        if (reference.Format != VoiceAudioFormat.Wav ||
+            !reference.RelativePath.StartsWith("audio/generated/ambient/", StringComparison.Ordinal))
+            throw new ArgumentException("Ambient metadata requires an ambient generated WAV reference.", nameof(reference));
+        return Path.ChangeExtension(Resolve(reference), ".json");
+    }
+
+    public bool IsValidWave(VoiceAudioReference reference)
+    {
+        if (reference.Format != VoiceAudioFormat.Wav) return false;
+        var path = Resolve(reference);
+        if (!File.Exists(path) || new FileInfo(path).Length < 44) return false;
+        Span<byte> header = stackalloc byte[12];
+        using var stream = File.OpenRead(path);
+        return stream.Read(header) == header.Length &&
+               header[..4].SequenceEqual("RIFF"u8) &&
+               header[8..12].SequenceEqual("WAVE"u8);
+    }
+
     public string Resolve(VoiceAudioReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);

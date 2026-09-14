@@ -91,10 +91,10 @@ commands.
 
 - This is a prototype; procedural assets are intentionally stylized.
 - Lines with text but no recording are silent during normal playback.
-- Ambient player phrases require a configured voice resolver; procedural venue
-  beds do not require Piper.
+- Ambient player phrases use the speaking player's configured local voice and
+  remain silent when none is configured; procedural venue beds do not require
+  Piper.
 - Visual quality, venue, and ambience controls are currently transient studio
   preferences rather than saved project data.
 - Authored play outcomes are deterministic. Presentation settings cannot change
   their timing, final positions, or game-state effects.
-

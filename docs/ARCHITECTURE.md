@@ -117,6 +117,10 @@ presentation.
 `VenueEnvironment` and `ProceduralSpectatorSystem` build presentation-only venue
 geometry. `VenueAudioController` consumes simulation/dialogue events and uses
 stable `VenueAudioHooks` anchors; it does not participate in football rules.
+Ambient phrase requests reuse `SpeechGenerationService`: cache misses run through
+the bounded engine-independent TTS queue, while ready clips return to the main
+thread and use `DialoguePlaybackController` for mouth-anchor playback and lip
+sync.
 
 ## Repository organization
 
@@ -143,4 +147,3 @@ data directories are retained with `.gitkeep` files.
 - [Cameras](CAMERAS.md)
 - [Audio](AUDIO.md)
 - [Environment](ENVIRONMENT.md)
-

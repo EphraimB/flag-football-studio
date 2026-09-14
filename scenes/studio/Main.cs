@@ -95,8 +95,10 @@ public partial class Main : Node3D
         {
             _venueAudio = new VenueAudioController { Name = "VenueAudioController" };
             AddChild(_venueAudio);
-            _venueAudio.Configure(_venue, _pawns, _football, _previewCamera, _project.PlayerVoiceProfiles);
+            _venueAudio.Configure(_venue, _pawns, _football, _previewCamera, _project.PlayerVoiceProfiles,
+                _speechGeneration, _dialogueController);
             _venueAudio.ApplySettings(_ambientAudioSettings);
+            _venueAudio.AmbientTtsDiagnosticsChanged += _gameDirector.SetAmbientTtsStatus;
             _sequence.SimulationStarted += _venueAudio.BeginPlay;
             _sequence.SimulationFrameApplied += _venueAudio.HandleSimulationFrame;
             _sequence.SimulationEventApplied += _venueAudio.HandleSimulationEvent;
@@ -164,6 +166,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunEnvironmentValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-venue-audio"))
             CallDeferred(nameof(RunVenueAudioValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-ambient-tts"))
+            CallDeferred(nameof(RunAmbientTtsValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -240,6 +244,23 @@ public partial class Main : Node3D
         {
             await validator.RunAsync();
             GD.Print("Ambient venue-audio validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
+    private async void RunAmbientTtsValidation()
+    {
+        var validator = new AmbientTtsValidator { Name = "AmbientTtsValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Ambient player TTS validation passed.");
             GetTree().Quit();
         }
         catch (Exception exception)
@@ -931,7 +952,8 @@ public partial class Main : Node3D
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
         _cameraController.Configure(_previewCamera, this, _pawns, _football);
         _dialogueController.Configure(_pawns, _football, _previewCamera, _audioAssetStore, _project.PlayerVoiceProfiles);
-        _venueAudio?.Configure(_venue, _pawns, _football, _previewCamera, _project.PlayerVoiceProfiles);
+        _venueAudio?.Configure(_venue, _pawns, _football, _previewCamera, _project.PlayerVoiceProfiles,
+            _speechGeneration, _dialogueController);
         _venueAudio?.ApplySettings(_ambientAudioSettings);
         PreviewSelectedCamera();
     }

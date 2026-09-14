@@ -9,7 +9,7 @@ namespace FlagFootballStudio.Tts;
 
 public sealed record SpeechGenerationOutcome(DialogueLine Line, TtsGenerationResult ProviderResult);
 
-public sealed class SpeechGenerationService
+public sealed partial class SpeechGenerationService
 {
     private readonly ITtsProvider _provider;
     private readonly ProjectAudioAssetStore _assets;

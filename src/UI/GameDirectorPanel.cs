@@ -36,6 +36,7 @@ public partial class GameDirectorPanel : PanelContainer
     private CheckButton _debugAmbienceBoost = null!;
     private OptionButton _audioTestMode = null!;
     private Label _audioDiagnostics = null!;
+    private Label _ambientTtsStatus = null!;
 
     public event Action<Guid>? PlaySelected;
     public event Action? CreateRequested;
@@ -266,11 +267,12 @@ public partial class GameDirectorPanel : PanelContainer
         };
         audio.AddChild(_debugAmbienceBoost);
         audio.AddChild(new Label { Text = "Player phrases" });
-        audio.AddChild(new Label
+        _ambientTtsStatus = new Label
         {
-            Text = "TTS voice required",
-            TooltipText = "The procedural Player Chatter bed is separate and works without Piper."
-        });
+            Text = "Ambient TTS idle",
+            TooltipText = "Cache/pending status for player-voice phrases. The procedural chatter bed works without Piper."
+        };
+        audio.AddChild(_ambientTtsStatus);
         _crowdVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
         _sidelineVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
         _playerChatterVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
@@ -318,6 +320,7 @@ public partial class GameDirectorPanel : PanelContainer
     }
 
     public void SetAudioDiagnostics(string diagnostics) => _audioDiagnostics.Text = diagnostics;
+    public void SetAmbientTtsStatus(string status) => _ambientTtsStatus.Text = status;
 
     private void OnItemSelected(long index)
     {

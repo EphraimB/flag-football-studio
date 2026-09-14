@@ -22,8 +22,8 @@ Implemented foundations include:
 - Top-down formation and route editing with persistent play libraries.
 - Reusable cameras, timed cuts, action-camera Player POV, and sideline tracking.
 - Procedural customizable humanoids, uniforms, animation, and contact posing.
-- Imported voice audio, manual/automatic visemes, optional local Piper TTS, and
-  spatial venue audio.
+- Imported voice audio, manual/automatic visemes, optional local Piper TTS,
+  player-specific ambient speech, and spatial venue audio.
 - Procedural fields, venue presets, spectators, materials, and lighting presets.
 - Versioned JSON project persistence and focused headless validation tools.
 

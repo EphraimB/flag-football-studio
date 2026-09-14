@@ -30,6 +30,7 @@ handled by the configured main scene.
 | Dialogue/spatial audio | `godot --headless --path . -- --validate-dialogue-audio` | Dialogue JSON, ordering/attachment, overlap, ranges, anchors/listeners, facial state restoration |
 | Voice/lip sync | `godot --headless --path . -- --validate-voice-lip-sync` | Voice/audio/viseme JSON, bounds/order, WAV, silence/fallback modes, simultaneous speech, seek, cuts/POV |
 | Local TTS | `godot --headless --path . -- --validate-local-tts` | Fake-provider CUDA/CPU contract, portable output, timing fallback, manual protection, model errors |
+| Ambient player TTS | `godot --headless --path . -- --validate-ambient-tts` | Voice resolution, cache identity/rekeying, non-blocking bounded generation, failures, mouth anchors, priority, lip sync, and simulation invariance |
 | Visual presentation | `godot --headless --path . -- --validate-visual-presentation` | Material reuse, skin/team colors, quality/exposure/night lights, unchanged FOV/simulation |
 | Venue | `godot --headless --path . -- --validate-environment` | Scoreboard, presets, deterministic spectators, resource bounds, camera clearance, hooks, simulation equivalence |
 | Venue audio | `godot --headless --path . -- --validate-venue-audio` | Concurrent sources, scheduling/proximity, listeners, ducking, events/reactions, PCM, source lifetime, raw/near/production paths |
@@ -80,6 +81,14 @@ persistent source identity through listener/settings changes. It exercises raw,
 forced-near, and production crowd paths, sideline/bench beds, debug one-shots,
 diagnostic boost, and venue-scale Broadcast attenuation.
 
+Ambient-player-TTS validation uses delayed fake providers to verify that request
+submission does not block the simulation caller, provider work stays off the
+Godot thread, and only ready clips return to main-thread scene/audio operations.
+It also checks player-specific cache separation, deterministic hits, profile
+rekeying, intentional missing-voice silence, failure containment, queue bounds,
+mouth-anchor spatial playback, timed visemes/restoration, authored-dialogue
+preemption, and unchanged persistent venue beds and simulator output.
+
 ### TTS without a local model
 
 `--validate-local-tts` uses a deterministic in-process fake provider. CI does
@@ -95,4 +104,3 @@ git diff --check
 
 For documentation work, inspect relative Markdown targets and ensure documented
 flags still appear in the main scene's command-line dispatch.
-

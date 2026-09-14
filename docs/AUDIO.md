@@ -80,17 +80,36 @@ Immutable simulator events trigger one-shots at authoritative times; frames
 schedule footsteps.
 
 Ambient player remarks use a deterministic phrase pool, proximity, and authored
-dialogue priority. They synthesize only with a valid player voice resolver;
-otherwise they remain intentionally silent unless development fallback is
-enabled. The procedural chatter bed is separate and does not require Piper.
+dialogue priority. For the speaking player, the controller resolves that
+player's `PlayerVoiceProfile` and asks the existing `SpeechGenerationService`
+for local speech. It never substitutes another player or a generic voice.
+Missing or invalid voice configuration remains intentionally silent unless the
+explicit development fallback is enabled. The procedural chatter bed is
+separate and does not require Piper.
+
+Repeated phrases use deterministic cache keys covering player/profile identity,
+provider/backend, model, speaker, reference audio, phrase, volume, pitch, rate,
+style, and emotion. WAV and viseme metadata are stored under
+`audio/generated/ambient/`. Cache misses enter a bounded two-worker/eight-item
+queue and skip the current utterance; gameplay never waits. A later occurrence
+uses the completed clip. Provider work performs no Godot scene-tree access;
+decoding, source creation, anchor attachment, and facial playback return to the
+main thread.
+
+Ready ambient clips play through `DialoguePlaybackController` at the speaker's
+mouth anchor with provider-timed visemes or the existing approximate fallback.
+The controller restores prior mouth/expression/gaze state. Authored dialogue
+stops ambient speech before taking its own presentation snapshot and prevents
+new ambient lines until it finishes.
 
 ## Mix priority
 
 1. Featured authored dialogue.
 2. Natural authored dialogue.
 3. Player and ball action sounds.
-4. Sideline/player chatter.
-5. Crowd ambience.
+4. Ambient player conversations.
+5. Sideline/bench chatter.
+6. Crowd ambience.
 
 Featured dialogue modestly ducks crowd/chatter while preserving action SFX;
 natural dialogue uses a lighter duck. Gains interpolate over roughly 180 ms and
@@ -112,6 +131,8 @@ Master mute, `Play()` call, and post-start `Playing` state.
 **Debug ambience boost** defaults off and temporarily brings persistent beds to
 a reliable range and level without recreating them. “Engine expected audible”
 is a calculated signal-path result; physical output still requires listening.
+The compact Ambient TTS status reports cache hits/misses, pending count, and the
+last skipped or playback reason.
 
 ## Current limitations
 
@@ -125,4 +146,8 @@ is a calculated signal-path result; physical output still requires listening.
 - No transcription, time stretching, waveform editor, subtitles, localization,
   or full phoneme extraction is implemented.
 - Expression/gaze restoration does not reinstate a former moving target tracker.
-
+- Ambient TTS is generated on demand rather than comprehensively prewarmed, so
+  the first occurrence of a cache miss is intentionally skipped.
+- Failed cache keys remain suppressed for the current service lifetime; editing
+  the voice configuration creates a new key, and restarting retries unchanged
+  configuration.
