@@ -26,6 +26,9 @@ public partial class PlaySequenceController : Node
     public bool IsRunning { get; private set; }
     public PlaySimulation? LastSimulation { get; private set; }
     public FootballAnimationTimeline? LastAnimationTimeline { get; private set; }
+    public event Action<PlaySimulation>? SimulationStarted;
+    public event Action<SimulationFrame>? SimulationFrameApplied;
+    public event Action<SimulationEvent>? SimulationEventApplied;
 
     public void Configure(
         PlayDefinition play,
@@ -65,6 +68,7 @@ public partial class PlaySequenceController : Node
             ResetPlay();
             LastSimulation = _simulator.Simulate(_play, _offense, _defense);
             LastAnimationTimeline = _animationQuality.Build(LastSimulation);
+            SimulationStarted?.Invoke(LastSimulation);
             _nextEventIndex = 0;
             var stopwatch = Stopwatch.StartNew();
             while (stopwatch.Elapsed.TotalSeconds < LastSimulation.DurationSeconds)
@@ -103,6 +107,7 @@ public partial class PlaySequenceController : Node
         }
 
         ApplyBall(frame.Ball);
+        SimulationFrameApplied?.Invoke(frame);
     }
 
     private void ApplyBall(BallState ball)
@@ -167,6 +172,7 @@ public partial class PlaySequenceController : Node
             }
             else if (simulationEvent.Type == SimulationEventType.Touchdown && simulationEvent.PlayerId.HasValue)
                 RestartAnimationCue(simulation, simulationEvent, "touchdown scorer");
+            SimulationEventApplied?.Invoke(simulationEvent);
         }
     }
 

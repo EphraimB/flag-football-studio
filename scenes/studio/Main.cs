@@ -46,10 +46,12 @@ public partial class Main : Node3D
     private DialogueDirectorPanel _dialogueDirector = null!;
     private CameraDirectorController _cameraController = null!;
     private DialoguePlaybackController _dialogueController = null!;
+    private VenueAudioController? _venueAudio;
     private SportsLightingController _lightingController = null!;
     private VenueEnvironment _venue = null!;
     private VisualPresentationSettings _visualSettings = VisualPresentationSettings.Default;
     private VenuePresentationSettings _venueSettings = VenuePresentationSettings.Default;
+    private AmbientAudioSettings _ambientAudioSettings = AmbientAudioSettings.Default;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
 
@@ -88,6 +90,19 @@ public partial class Main : Node3D
         _dialogueController.Configure(_pawns, _football, _previewCamera, _audioAssetStore, _project.PlayerVoiceProfiles);
         _dialogueController.AudioDiagnosticsReported += OnAudioDiagnosticsReported;
 
+        // Headless servers have no audio driver; focused validators construct their own controller.
+        if (!string.Equals(DisplayServer.GetName(), "headless", StringComparison.OrdinalIgnoreCase))
+        {
+            _venueAudio = new VenueAudioController { Name = "VenueAudioController" };
+            AddChild(_venueAudio);
+            _venueAudio.Configure(_venue, _pawns, _football, _previewCamera, _project.PlayerVoiceProfiles);
+            _venueAudio.ApplySettings(_ambientAudioSettings);
+            _sequence.SimulationStarted += _venueAudio.BeginPlay;
+            _sequence.SimulationFrameApplied += _venueAudio.HandleSimulationFrame;
+            _sequence.SimulationEventApplied += _venueAudio.HandleSimulationEvent;
+            _dialogueController.DialogueActivityChanged += _venueAudio.SetAuthoredDialogueActivity;
+        }
+
         _director.FormationChanged += OnFormationChanged;
         _director.ResetRequested += OnResetRequested;
         _director.RunRequested += OnRunPlayRequested;
@@ -101,6 +116,8 @@ public partial class Main : Node3D
         _gameDirector.LoadRequested += OnLoadRequested;
         _gameDirector.VisualSettingsChanged += OnVisualSettingsChanged;
         _gameDirector.EnvironmentSettingsChanged += OnEnvironmentSettingsChanged;
+        _gameDirector.AmbientAudioSettingsChanged += OnAmbientAudioSettingsChanged;
+        _gameDirector.AmbientAudioTestRequested += OnAmbientAudioTestRequested;
         _cameraDirector.CameraSelected += OnCameraSelected;
         _cameraDirector.CreateRequested += OnCreateCameraRequested;
         _cameraDirector.RenameRequested += OnRenameCameraRequested;
@@ -145,6 +162,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunVisualPresentationValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-environment"))
             CallDeferred(nameof(RunEnvironmentValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-venue-audio"))
+            CallDeferred(nameof(RunVenueAudioValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -204,6 +223,23 @@ public partial class Main : Node3D
         {
             validator.Run();
             GD.Print("Venue environment validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
+    private async void RunVenueAudioValidation()
+    {
+        var validator = new VenueAudioValidator { Name = "VenueAudioValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Ambient venue-audio validation passed.");
             GetTree().Quit();
         }
         catch (Exception exception)
@@ -515,6 +551,33 @@ public partial class Main : Node3D
         _venue.Apply(_venueSettings, _visualSettings.Quality);
         _gameDirector.SetStatus(
             $"Venue: {_venueSettings.Preset}, {_venue.SpectatorCount} spectators");
+    }
+
+    private void OnAmbientAudioSettingsChanged(AmbientAudioSettings settings)
+    {
+        _ambientAudioSettings = settings.Validated();
+        _venueAudio?.ApplySettings(_ambientAudioSettings);
+        _gameDirector.SetStatus("Venue audio mix updated");
+    }
+
+    private async void OnAmbientAudioTestRequested(VenueAudioTestKind kind, VenueAudioTestMode mode)
+    {
+        if (_venueAudio is null)
+        {
+            _gameDirector.SetAudioDiagnostics("Audio tests require a normal Godot session with an audio driver; headless mode intentionally skips runtime output.");
+            return;
+        }
+        try
+        {
+            var report = await _venueAudio.TestAsync(kind, mode);
+            _gameDirector.SetAudioDiagnostics(report.ToString());
+            _gameDirector.SetStatus($"Audio diagnostic: {kind} / {mode}");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            _gameDirector.SetAudioDiagnostics($"Audio test failed: {exception.Message}");
+        }
     }
 
     private void BuildUi()
@@ -868,6 +931,8 @@ public partial class Main : Node3D
         _sequence.Configure(_play, _pawns, _football, this, _statusLabel, OffenseTeam, DefenseTeam);
         _cameraController.Configure(_previewCamera, this, _pawns, _football);
         _dialogueController.Configure(_pawns, _football, _previewCamera, _audioAssetStore, _project.PlayerVoiceProfiles);
+        _venueAudio?.Configure(_venue, _pawns, _football, _previewCamera, _project.PlayerVoiceProfiles);
+        _venueAudio?.ApplySettings(_ambientAudioSettings);
         PreviewSelectedCamera();
     }
 

@@ -27,6 +27,15 @@ public partial class GameDirectorPanel : PanelContainer
     private Label _spectatorDensityValue = null!;
     private CheckButton _showSpectators = null!;
     private CheckButton _showEquipment = null!;
+    private SpinBox _crowdVolume = null!;
+    private SpinBox _sidelineVolume = null!;
+    private SpinBox _playerChatterVolume = null!;
+    private SpinBox _actionVolume = null!;
+    private CheckButton _ambientConversations = null!;
+    private CheckButton _crowdReactions = null!;
+    private CheckButton _debugAmbienceBoost = null!;
+    private OptionButton _audioTestMode = null!;
+    private Label _audioDiagnostics = null!;
 
     public event Action<Guid>? PlaySelected;
     public event Action? CreateRequested;
@@ -37,6 +46,8 @@ public partial class GameDirectorPanel : PanelContainer
     public event Action? LoadRequested;
     public event Action<VisualPresentationSettings>? VisualSettingsChanged;
     public event Action<VenuePresentationSettings>? EnvironmentSettingsChanged;
+    public event Action<AmbientAudioSettings>? AmbientAudioSettingsChanged;
+    public event Action<VenueAudioTestKind, VenueAudioTestMode>? AmbientAudioTestRequested;
 
     public Label StatusLabel => _statusLabel;
 
@@ -98,12 +109,18 @@ public partial class GameDirectorPanel : PanelContainer
 
     private void BuildUi()
     {
-        var margin = new MarginContainer();
+        var scroll = new ScrollContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        AddChild(scroll);
+        var margin = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         margin.AddThemeConstantOverride("margin_left", 14);
         margin.AddThemeConstantOverride("margin_top", 12);
         margin.AddThemeConstantOverride("margin_right", 14);
         margin.AddThemeConstantOverride("margin_bottom", 12);
-        AddChild(margin);
+        scroll.AddChild(margin);
 
         var stack = new VBoxContainer();
         stack.AddThemeConstantOverride("separation", 7);
@@ -221,6 +238,74 @@ public partial class GameDirectorPanel : PanelContainer
         };
         _showSpectators.Toggled += _ => RaiseEnvironmentSettingsChanged();
         _showEquipment.Toggled += _ => RaiseEnvironmentSettingsChanged();
+
+        stack.AddChild(new HSeparator());
+        var audioTitle = new Label { Text = "AUDIO / AMBIENCE" };
+        audioTitle.AddThemeFontSizeOverride("font_size", 18);
+        stack.AddChild(audioTitle);
+        var audio = new GridContainer { Columns = 4 };
+        audio.AddThemeConstantOverride("h_separation", 8);
+        audio.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(audio);
+        _crowdVolume = AddPercentSpin(audio, "Crowd", AmbientAudioSettings.Default.CrowdVolume);
+        _sidelineVolume = AddPercentSpin(audio, "Sideline", AmbientAudioSettings.Default.SidelineChatterVolume);
+        _playerChatterVolume = AddPercentSpin(audio, "Player chatter", AmbientAudioSettings.Default.PlayerChatterVolume);
+        _actionVolume = AddPercentSpin(audio, "Action SFX", AmbientAudioSettings.Default.ActionSfxVolume);
+        audio.AddChild(new Label { Text = "Conversations" });
+        _ambientConversations = new CheckButton { Text = "On", ButtonPressed = true };
+        audio.AddChild(_ambientConversations);
+        audio.AddChild(new Label { Text = "Reactions" });
+        _crowdReactions = new CheckButton { Text = "On", ButtonPressed = true };
+        audio.AddChild(_crowdReactions);
+        audio.AddChild(new Label { Text = "Debug boost" });
+        _debugAmbienceBoost = new CheckButton
+        {
+            Text = "Off",
+            ButtonPressed = false,
+            TooltipText = "Temporarily raises ambient beds and keeps them close to the active listener."
+        };
+        audio.AddChild(_debugAmbienceBoost);
+        audio.AddChild(new Label { Text = "Player phrases" });
+        audio.AddChild(new Label
+        {
+            Text = "TTS voice required",
+            TooltipText = "The procedural Player Chatter bed is separate and works without Piper."
+        });
+        _crowdVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
+        _sidelineVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
+        _playerChatterVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
+        _actionVolume.ValueChanged += _ => RaiseAmbientAudioSettingsChanged();
+        _ambientConversations.Toggled += _ => RaiseAmbientAudioSettingsChanged();
+        _crowdReactions.Toggled += _ => RaiseAmbientAudioSettingsChanged();
+        _debugAmbienceBoost.Toggled += enabled =>
+        {
+            _debugAmbienceBoost.Text = enabled ? "ON" : "Off";
+            RaiseAmbientAudioSettingsChanged();
+        };
+
+        _audioTestMode = AddOption(audio, "Bed test", Enum.GetNames<VenueAudioTestMode>());
+        _audioTestMode.Select((int)VenueAudioTestMode.ForcedNearSpatial);
+        audio.AddChild(new Label { Text = "", CustomMinimumSize = new Vector2(1, 1) });
+        audio.AddChild(new Label { Text = "", CustomMinimumSize = new Vector2(1, 1) });
+        var tests = new GridContainer { Columns = 3 };
+        tests.AddThemeConstantOverride("h_separation", 5);
+        tests.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(tests);
+        AddButton(tests, "Test Crowd", () => RequestAudioTest(VenueAudioTestKind.Crowd));
+        AddButton(tests, "Test Sideline", () => RequestAudioTest(VenueAudioTestKind.Sideline));
+        AddButton(tests, "Test Player Chatter Bed", () => RequestAudioTest(VenueAudioTestKind.PlayerChatterBed));
+        AddButton(tests, "Test Footstep", () => RequestAudioTest(VenueAudioTestKind.Footstep));
+        AddButton(tests, "Test Catch Impact", () => RequestAudioTest(VenueAudioTestKind.CatchImpact));
+        AddButton(tests, "Test Whistle", () => RequestAudioTest(VenueAudioTestKind.Whistle));
+        AddButton(tests, "Test Cheer", () => RequestAudioTest(VenueAudioTestKind.Cheer));
+        _audioDiagnostics = new Label
+        {
+            Text = "Select Raw 2D, Forced Near Spatial, or Production Spatial, then run a test.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            CustomMinimumSize = new Vector2(0, 74),
+            TooltipText = "Expected audible is calculated from PCM level, mix gain, distance, and attenuation. Confirm the result by ear."
+        };
+        stack.AddChild(_audioDiagnostics);
     }
 
     public void RefreshScoreboard()
@@ -231,6 +316,8 @@ public partial class GameDirectorPanel : PanelContainer
         _situationLabel.Text = $"Q{_project.Quarter}  {minutes:00}:{seconds:00}  •  {Ordinal(_project.Down)} & {_project.Distance}  •  {_project.Possession.Name.ToUpperInvariant()} BALL";
         _lastPlayLabel.Text = $"Last play: {_project.LastPlayResult}";
     }
+
+    public void SetAudioDiagnostics(string diagnostics) => _audioDiagnostics.Text = diagnostics;
 
     private void OnItemSelected(long index)
     {
@@ -277,6 +364,22 @@ public partial class GameDirectorPanel : PanelContainer
         return option;
     }
 
+    private static SpinBox AddPercentSpin(GridContainer grid, string label, float value)
+    {
+        grid.AddChild(new Label { Text = label });
+        var spin = new SpinBox
+        {
+            MinValue = 0,
+            MaxValue = 100,
+            Step = 1,
+            Value = value * 100,
+            Suffix = "%",
+            CustomMinimumSize = new Vector2(105, 0)
+        };
+        grid.AddChild(spin);
+        return spin;
+    }
+
     private void RaiseVisualSettingsChanged() => VisualSettingsChanged?.Invoke(
         new VisualPresentationSettings(
             (SportsLightingPreset)_lightingOption.Selected,
@@ -290,6 +393,19 @@ public partial class GameDirectorPanel : PanelContainer
             (float)_spectatorDensity.Value,
             _showSpectators.ButtonPressed,
             _showEquipment.ButtonPressed));
+
+    private void RaiseAmbientAudioSettingsChanged() => AmbientAudioSettingsChanged?.Invoke(
+        new AmbientAudioSettings(
+            (float)_crowdVolume.Value / 100,
+            (float)_sidelineVolume.Value / 100,
+            (float)_playerChatterVolume.Value / 100,
+            (float)_actionVolume.Value / 100,
+            _ambientConversations.ButtonPressed,
+            _crowdReactions.ButtonPressed,
+            _debugAmbienceBoost.ButtonPressed));
+
+    private void RequestAudioTest(VenueAudioTestKind kind) => AmbientAudioTestRequested?.Invoke(
+        kind, (VenueAudioTestMode)_audioTestMode.Selected);
 
     private static string ReadableName(string value)
     {

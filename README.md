@@ -21,6 +21,9 @@ timings when available. A reusable presentation-only venue now surrounds the
 field with team sidelines, equipment, community-scale seating, deterministic
 instanced spectators, visible field-light structures, and a live physical
 scoreboard.
+The venue-audio foundation adds local procedural crowd beds, sideline/bench
+chatter, deterministic action sounds and crowd reactions, plus optional ambient
+conversation cues without changing authored speech or simulation state.
 
 ## Repository layout
 
@@ -52,8 +55,22 @@ scoreboard.
 - `ProceduralSpectatorSystem` batches deterministic seated and standing people
   into three shared head/torso/leg `MultiMesh` resources. Skin and clothing
   colors vary by stable seat index, while venue and quality presets cap instance
-  count without adding crowd AI. `VenueAudioHooks` exposes empty spatial anchors
-  for future ambience, sideline chatter, whistles, and footsteps.
+  count without adding crowd AI. `VenueAudioHooks` exposes stable spatial anchors
+  for crowd sections, both sidelines and benches, whistles, equipment, impacts,
+  celebration reactions, and future extensions.
+- `VenueAudioController` is a presentation-only event consumer and spatial
+  mixer. Eight low-cost looping `AudioStreamPlayer3D` sources establish crowd,
+  sideline, and bench beds; simulator frames schedule footsteps while immutable
+  simulator events trigger snap/throw/catch/drop/flag/whistle and crowd cues at
+  their authoritative timestamps. Venue-scale `UnitSize` values keep real
+  crowd/bench anchors audible without bypassing production attenuation.
+  `ProceduralVenueAudio` caches deterministic,
+  developer-safe PCM streams and requires no cloud or imported audio.
+- Ambient player remarks are deterministic transient cues selected from a small
+  phrase pool. They require teammate proximity and yield to any audible authored
+  dialogue. A configured local voice may be supplied through the voice-resolver
+  boundary; otherwise they stay silent unless an explicit development fallback
+  is enabled. They never enter `GameProject` or the football domain.
 - `HumanoidSkeletonDefinition` is the single shared 18-bone hierarchy used by
   every Gold and Navy player. `HumanoidSkinnedMesh` builds one reusable indexed
   `ArrayMesh` and one bind-pose `Skin`; every player instance shares that mesh,
@@ -254,6 +271,27 @@ The center of each sideline remains open for sports cameras. The physical
 scoreboard follows the current scores, quarter, and clock whenever a project is
 loaded or a play updates game state. Venue controls are transient presentation
 preferences and do not alter or enter project football data.
+
+The compact **Audio / Ambience** section controls Crowd, Sideline, Player
+Chatter, and Action SFX volume plus ambient-conversation and crowd-reaction
+toggles. All sources remain on the existing Master output and use physical 3D
+attenuation from the active preview camera. Featured line previews modestly duck
+crowd/chatter while preserving action sounds; scheduled authored dialogue uses
+a lighter natural-dialogue duck. Gains interpolate over roughly 180 ms and
+restore after the last audible line. These mix controls and all live scheduling
+state are transient and are not added to project JSON.
+
+For diagnosis, **Bed test** selects **Raw 2D**, **Forced Near Spatial**, or
+**Production Spatial** before using Test Crowd, Test Sideline, or Test Player
+Chatter Bed. The same row provides immediate Footstep, Catch Impact, Whistle,
+and Cheer tests. Every test reports PCM sample/non-zero counts, peak and RMS,
+stream duration, source/listener geometry, spatial settings, linear/dB gain,
+Master mute state, and post-`Play()` state. “Engine expected audible” is a
+calculated signal-path result; the user still confirms actual device output by
+ear. **Debug ambience boost** defaults off; while enabled it raises ambient
+beds and follows the active listener at reliable range without recreating the
+production sources. The Player Chatter Bed is procedural and independent of
+Piper; phrase conversations still require configured voice audio.
 
 ### Camera Director controls
 
@@ -499,6 +537,24 @@ MultiMesh/material reuse, sideline/Broadcast/POV camera clearance, future
 spectator viewpoints, empty audio hooks, visibility controls, and byte-for-byte
 equivalent simulation snapshots before and after venue changes.
 
+The focused ambient-audio validation is available with:
+
+```powershell
+godot --headless --path . -- --validate-venue-audio
+```
+
+It checks bounded concurrent spatial sources, deterministic conversation
+scheduling and proximity, Player POV/sideline/broadcast distance behavior,
+natural versus featured ducking and restoration, event-aligned action sounds,
+distinct outcome reactions, reaction toggles, authored-dialogue priority,
+explicit development fallback behavior, cached procedural streams, and
+identical simulation snapshots before and after audio playback.
+It also exercises raw, forced-near, and production crowd paths; validates PCM
+peak/RMS, looping state, persistent source identity through listener and UI-like
+settings changes, sideline and bench beds, every explicit debug action, and the
+diagnostic boost. The validator logs an attenuation comparison demonstrating
+why a one-meter acoustic unit made Broadcast Wide ambience effectively silent.
+
 The focused football simulation validation is available with:
 
 ```powershell
@@ -724,8 +780,13 @@ low-poly poles and fixture bars, but have no IES profiles or physically measured
 lux values. Venue objects remain procedural primitives without collision,
 weathering textures, signs, rail detail, or authored architecture. Spectators
 are rigid low-poly seated/standing silhouettes with deterministic variation;
-they have no animation, reactions, faces, individual accessories, AI, occlusion
-LOD, or ambient audio. The physical scoreboard uses simple 3D labels rather
+they have no animation, visible reactions, faces, individual accessories, AI,
+or occlusion LOD. Ambient crowd/chatter and action effects are synthesized
+low-fidelity test-safe waveforms, not recorded performances; there is no
+reverb, obstruction, acoustic zones, mastering, per-surface footstep library,
+or audience-size convolution. Private phrase cues do not synthesize themselves:
+they remain silent without a valid configured resolver, and the development
+fallback is deliberately disabled during normal use. The physical scoreboard uses simple 3D labels rather
 than emissive pixel panels and currently shows only score, quarter, and clock.
 
 First-person presentation uses render layers rather than a separate body mesh.
