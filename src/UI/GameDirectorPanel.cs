@@ -18,6 +18,10 @@ public partial class GameDirectorPanel : PanelContainer
     private Label _statusLabel = null!;
     private ItemList _playList = null!;
     private LineEdit _nameEdit = null!;
+    private OptionButton _lightingOption = null!;
+    private OptionButton _qualityOption = null!;
+    private OptionButton _shadowOption = null!;
+    private SpinBox _exposure = null!;
 
     public event Action<Guid>? PlaySelected;
     public event Action? CreateRequested;
@@ -26,6 +30,7 @@ public partial class GameDirectorPanel : PanelContainer
     public event Action<Guid>? DeleteRequested;
     public event Action? SaveRequested;
     public event Action? LoadRequested;
+    public event Action<VisualPresentationSettings>? VisualSettingsChanged;
 
     public Label StatusLabel => _statusLabel;
 
@@ -139,6 +144,36 @@ public partial class GameDirectorPanel : PanelContainer
         stack.AddChild(fileActions);
         AddButton(fileActions, "Save Project", () => SaveRequested?.Invoke());
         AddButton(fileActions, "Load Project", () => LoadRequested?.Invoke());
+
+        stack.AddChild(new HSeparator());
+        var visualsTitle = new Label { Text = "VISUALS / ENVIRONMENT" };
+        visualsTitle.AddThemeFontSizeOverride("font_size", 18);
+        stack.AddChild(visualsTitle);
+
+        var visuals = new GridContainer { Columns = 2 };
+        visuals.AddThemeConstantOverride("h_separation", 10);
+        visuals.AddThemeConstantOverride("v_separation", 5);
+        stack.AddChild(visuals);
+        _lightingOption = AddOption(visuals, "Lighting", Enum.GetNames<SportsLightingPreset>());
+        _qualityOption = AddOption(visuals, "Quality", Enum.GetNames<PresentationQualityPreset>());
+        _shadowOption = AddOption(visuals, "Shadows", Enum.GetNames<ShadowQualityPreset>());
+        visuals.AddChild(new Label { Text = "Exposure" });
+        _exposure = new SpinBox
+        {
+            MinValue = 0.6,
+            MaxValue = 1.4,
+            Step = 0.05,
+            Value = 1,
+            CustomMinimumSize = new Vector2(170, 0)
+        };
+        visuals.AddChild(_exposure);
+        _lightingOption.Select((int)SportsLightingPreset.Day);
+        _qualityOption.Select((int)PresentationQualityPreset.Preview);
+        _shadowOption.Select((int)ShadowQualityPreset.Medium);
+        _lightingOption.ItemSelected += _ => RaiseVisualSettingsChanged();
+        _qualityOption.ItemSelected += _ => RaiseVisualSettingsChanged();
+        _shadowOption.ItemSelected += _ => RaiseVisualSettingsChanged();
+        _exposure.ValueChanged += _ => RaiseVisualSettingsChanged();
     }
 
     public void RefreshScoreboard()
@@ -183,6 +218,32 @@ public partial class GameDirectorPanel : PanelContainer
         button.Pressed += action;
         parent.AddChild(button);
         _buttons.Add(button);
+    }
+
+    private static OptionButton AddOption(GridContainer grid, string label, string[] names)
+    {
+        grid.AddChild(new Label { Text = label });
+        var option = new OptionButton { CustomMinimumSize = new Vector2(170, 0) };
+        foreach (var name in names)
+            option.AddItem(ReadableName(name));
+        grid.AddChild(option);
+        return option;
+    }
+
+    private void RaiseVisualSettingsChanged() => VisualSettingsChanged?.Invoke(
+        new VisualPresentationSettings(
+            (SportsLightingPreset)_lightingOption.Selected,
+            (PresentationQualityPreset)_qualityOption.Selected,
+            (ShadowQualityPreset)_shadowOption.Selected,
+            (float)_exposure.Value));
+
+    private static string ReadableName(string value)
+    {
+        var result = value;
+        for (var index = result.Length - 1; index > 0; index--)
+            if (char.IsUpper(result[index]) && !char.IsUpper(result[index - 1]))
+                result = result.Insert(index, " ");
+        return result;
     }
 
     private static string Ordinal(int down) => down switch

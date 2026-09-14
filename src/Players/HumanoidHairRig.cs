@@ -39,7 +39,7 @@ public partial class HumanoidHairRig : Node3D
         if (hair.Style == HairStyle.None)
             return;
 
-        var material = CreateMaterial(ToGodot(hair.Color));
+        var material = StudioMaterialLibrary.Hair(ToGodot(hair.Color));
         var headWidth = 0.33f * face.HeadWidth;
         var headHeight = 0.34f * face.HeadHeight;
         var headDepth = 0.305f * (1 + (face.CheekFullness - 1) * 0.12f);
@@ -230,12 +230,6 @@ public partial class HumanoidHairRig : Node3D
 
     private static bool Finite(Vector3 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
-
-    private static StandardMaterial3D CreateMaterial(Color color) => new()
-    {
-        AlbedoColor = color,
-        Roughness = 0.88f
-    };
 
     private static Color ToGodot(AppearanceColor color) => Color.Color8(color.R, color.G, color.B);
 }

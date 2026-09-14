@@ -122,22 +122,23 @@ public partial class HumanoidRig : Node3D
         ClearGeneratedDetails();
         ApplyProportions(appearance);
 
-        var primary = CreateMaterial(ToGodot(uniform.PrimaryColor));
-        var secondary = CreateMaterial(ToGodot(uniform.SecondaryColor));
-        var accent = CreateMaterial(ToGodot(uniform.AccentColor));
-        var jersey = CreateMaterial(ToGodot(uniform.JerseyBaseColor));
-        var sleeveTrim = CreateMaterial(ToGodot(uniform.SleeveTrimColor));
-        var collarTrim = CreateMaterial(ToGodot(uniform.CollarTrimColor));
-        var shorts = CreateMaterial(ToGodot(uniform.ShortsColor));
-        var skin = CreateMaterial(ToGodot(appearance.SkinTone));
-        var hair = CreateMaterial(ToGodot(appearance.HairColor));
-        var flag = CreateMaterial(ToGodot(uniform.FlagColor));
+        var primary = StudioMaterialLibrary.Jersey(ToGodot(uniform.PrimaryColor));
+        var secondary = StudioMaterialLibrary.Jersey(ToGodot(uniform.SecondaryColor));
+        var accent = StudioMaterialLibrary.Jersey(ToGodot(uniform.AccentColor));
+        var jersey = StudioMaterialLibrary.Jersey(ToGodot(uniform.JerseyBaseColor));
+        var sleeveTrim = StudioMaterialLibrary.Jersey(ToGodot(uniform.SleeveTrimColor));
+        var collarTrim = StudioMaterialLibrary.Jersey(ToGodot(uniform.CollarTrimColor));
+        var shorts = StudioMaterialLibrary.Shorts(ToGodot(uniform.ShortsColor));
+        var skin = StudioMaterialLibrary.Skin(ToGodot(appearance.SkinTone));
+        var hair = StudioMaterialLibrary.Hair(ToGodot(appearance.HairColor));
+        var flag = StudioMaterialLibrary.Flag(ToGodot(uniform.FlagColor));
 
         _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Skin, skin);
         _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Jersey, jersey);
         _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Primary, primary);
         _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Shorts, shorts);
-        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Shoes, secondary);
+        _bodyMesh.SetSurfaceOverrideMaterial((int)HumanoidMeshSurface.Shoes,
+            StudioMaterialLibrary.Shoes(ToGodot(uniform.SecondaryColor)));
 
         AddDetail(HumanoidSkeletonDefinition.Chest, "AccentStripe", new BoxMesh { Size = new Vector3(0.1f, 0.53f, 0.035f) }, new Vector3(0, -0.12f, -0.3f), accent);
         AddDetail(HumanoidSkeletonDefinition.Chest, "Collar", new CylinderMesh { TopRadius = 0.2f, BottomRadius = 0.24f, Height = 0.08f }, new Vector3(0, 0.27f, 0), collarTrim);
@@ -498,12 +499,8 @@ public partial class HumanoidRig : Node3D
         }
     }
 
-    private static StandardMaterial3D CreateMaterial(Color color, bool transparent = false) => new()
-    {
-        AlbedoColor = color,
-        Roughness = 0.8f,
-        Transparency = transparent ? BaseMaterial3D.TransparencyEnum.Alpha : BaseMaterial3D.TransparencyEnum.Disabled
-    };
+    private static StandardMaterial3D CreateMaterial(Color color, bool transparent = false) =>
+        StudioMaterialLibrary.Generic(color, transparent);
 
     private static Color ToGodot(AppearanceColor color) => Color.Color8(color.R, color.G, color.B);
 }

@@ -46,6 +46,8 @@ public partial class Main : Node3D
     private DialogueDirectorPanel _dialogueDirector = null!;
     private CameraDirectorController _cameraController = null!;
     private DialoguePlaybackController _dialogueController = null!;
+    private SportsLightingController _lightingController = null!;
+    private VisualPresentationSettings _visualSettings = VisualPresentationSettings.Default;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
 
@@ -94,6 +96,7 @@ public partial class Main : Node3D
         _gameDirector.DeleteRequested += OnDeletePlayRequested;
         _gameDirector.SaveRequested += OnSaveRequested;
         _gameDirector.LoadRequested += OnLoadRequested;
+        _gameDirector.VisualSettingsChanged += OnVisualSettingsChanged;
         _cameraDirector.CameraSelected += OnCameraSelected;
         _cameraDirector.CreateRequested += OnCreateCameraRequested;
         _cameraDirector.RenameRequested += OnRenameCameraRequested;
@@ -134,6 +137,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFootballSimulationValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-sports-animation"))
             CallDeferred(nameof(RunSportsAnimationValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-visual-presentation"))
+            CallDeferred(nameof(RunVisualPresentationValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -166,6 +171,23 @@ public partial class Main : Node3D
         AddChild(validator);
         validator.RunDiagnostics();
         GetTree().Quit();
+    }
+
+    private void RunVisualPresentationValidation()
+    {
+        var validator = new VisualPresentationValidator { Name = "VisualPresentationValidator" };
+        AddChild(validator);
+        try
+        {
+            validator.Run();
+            GD.Print("Visual presentation validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
     }
 
     private void RunFootballSimulationValidation()
@@ -433,26 +455,9 @@ public partial class Main : Node3D
 
     private void BuildLightingAndCamera()
     {
-        var environment = new WorldEnvironment
-        {
-            Environment = new Godot.Environment
-            {
-                BackgroundMode = Godot.Environment.BGMode.Color,
-                BackgroundColor = new Color("8dc7e8"),
-                AmbientLightSource = Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = new Color("dbeeff"),
-                AmbientLightEnergy = 0.65f
-            }
-        };
-        AddChild(environment);
-
-        var sun = new DirectionalLight3D
-        {
-            RotationDegrees = new Vector3(-55, -30, 0),
-            LightEnergy = 1.25f,
-            ShadowEnabled = true
-        };
-        AddChild(sun);
+        _lightingController = new SportsLightingController { Name = "SportsLighting" };
+        AddChild(_lightingController);
+        _lightingController.Apply(_visualSettings);
 
         _previewCamera = new Camera3D
         {
@@ -462,6 +467,14 @@ public partial class Main : Node3D
         };
         AddChild(_previewCamera);
         _previewCamera.LookAt(new Vector3(0, 0, 2), Vector3.Up);
+    }
+
+    private void OnVisualSettingsChanged(VisualPresentationSettings settings)
+    {
+        _visualSettings = settings.Validated();
+        _lightingController.Apply(_visualSettings);
+        _gameDirector.SetStatus(
+            $"Visuals: {_visualSettings.Lighting}, {_visualSettings.Quality}, {_visualSettings.Shadows} shadows");
     }
 
     private void BuildUi()

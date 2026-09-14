@@ -3,7 +3,7 @@
 Flag Football Studio is an open-source 3D filmmaking studio for designing,
 directing, and rendering fully customizable flag football games.
 
-The director prototype demonstrates the core architecture with a primitive 3D
+The director prototype demonstrates the core architecture with a procedural 3D
 field, two five-player teams, a top-down play editor, persistent play and camera
 libraries, a game-state scoreboard, configurable camera previews, editable
 humanoid player appearances, reusable team uniform libraries, and a deterministic
@@ -29,8 +29,18 @@ timings when available.
   model. `Player`, `Team`, and `Game` do not depend on Godot.
 - Godot-facing presentation classes live beside their feature areas:
   `PlayerPawn` adapts a domain player to the reusable `HumanoidRig`, `FieldView`
-  builds primitive field geometry, and `FootballView` renders the placeholder
-  ball.
+  builds the procedural field geometry, and `FootballView` renders the reusable
+  football shell, seam, and laces.
+- `StudioMaterialLibrary` is the shared semantic material cache for skin, hair,
+  jersey and shorts fabric, turf, end zones, football leather/laces, flags,
+  shoes, and markings. Exact role/color combinations reuse one material;
+  procedural normal maps are shared globally and quality changes update cached
+  resources in place rather than rebuilding every player.
+- `SportsLightingController` owns one procedural sky, directional sun, and four
+  reusable field spotlights. Day, Golden Hour, Overcast, and Night / Field
+  Lights alter only environment presentation. `VisualPresentationSettings`
+  applies Preview, High, or Final material/MSAA/shadow budgets plus an exposure
+  and shadow-quality override without entering football or persistence models.
 - `HumanoidSkeletonDefinition` is the single shared 18-bone hierarchy used by
   every Gold and Navy player. `HumanoidSkinnedMesh` builds one reusable indexed
   `ArrayMesh` and one bind-pose `Skin`; every player instance shares that mesh,
@@ -209,6 +219,17 @@ movement.
 The prototype uses one automatic save slot at
 `user://flag-football-studio/game-project.json`. Godot maps `user://` to the
 current operating system's per-user application-data directory.
+
+### Visual quality and environment
+
+The compact **Visuals / Environment** section in the **Game** workspace selects
+Day, Golden Hour, Overcast, or Night / Field Lights; Preview, High, or Final
+quality; Low, Medium, or High shadows; and exposure from `0.60` to `1.40`.
+Preview disables procedural surface normals and MSAA and caps shadow resolution
+for responsive editing. High enables material detail, skin subsurface
+approximation, and 2× MSAA. Final uses stronger detail, anisotropic filtering,
+4× MSAA, and permits the largest directional shadow atlas. These are transient
+studio-view settings and are not written into `GameProject` JSON.
 
 ### Camera Director controls
 
@@ -431,6 +452,17 @@ source, so nearby conversations may overlap.
 
 ### Humanoid validation
 
+The focused visual/render validation is available with:
+
+```powershell
+godot --headless --path . -- --validate-visual-presentation
+```
+
+It checks shared material reuse, distinct skin tones, preserved Gold/Navy
+uniform colors, procedural detail quality switching, safe lighting/exposure
+ranges for Player POV, night-light activation, unchanged camera FOV, and exact
+simulation/animation equivalence across all lighting and quality presets.
+
 The focused football simulation validation is available with:
 
 ```powershell
@@ -622,7 +654,12 @@ resource with fixed weighted topology, but its material regions are separate,
 non-welded surfaces and visible joint or material seams are expected. It does
 not yet provide a production-smooth body or cloth deformation. The face is a
 rigid head-bone-attached, fixed-topology low-poly mesh with separately generated
-eyes, brows, lips, nose, and ears. Expressions move only the procedural brows,
+eyes, brows, lips, nose, and ears. Skin subsurface is a modest engine
+approximation rather than multilayer skin, and the shared procedural normal
+patterns replace neither scanned textures nor pores. Jersey and shorts detail
+suggests athletic weave but has no thickness, wrinkles, or fiber-direction
+deformation. Hair remains solid low-poly geometry without anisotropic strand
+shading. Expressions move only the procedural brows,
 mouth, and eyelids; they do not provide a facial bone rig or full cheek/jaw skin
 deformation. Eyeballs, irises, pupils, and lids are simple reusable primitives,
 with no eyelid curvature fitting, tear line, eye moisture, corneal refraction,
@@ -640,6 +677,15 @@ wind, secondary motion, transparency cards, or photorealistic shading.
 Clearance for the headband and visor is approximate; extreme face, hair, and
 accessory combinations may still show small gaps, intersections, hard seams, or
 exaggerated silhouettes.
+
+The turf uses deterministic mowing strips, shared procedural normal detail,
+hash marks, end-zone wordmarks, and fixed wear patches. It has no blade
+geometry, displacement, decals, wetness, footprints, or dynamic wear. Football
+seams and laces are simple procedural meshes without stitched displacement.
+Procedural skies do not yet include modeled clouds, stadium structures,
+bounced-light probes, volumetric fog, or cinematic color grading. Field lights
+are reusable spotlights without visible poles/fixtures, IES profiles, or
+physically measured lux values.
 
 First-person presentation uses render layers rather than a separate body mesh.
 The current procedural torso, limbs, and hands remain low-poly, and extreme
