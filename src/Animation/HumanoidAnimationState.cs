@@ -3,10 +3,22 @@ namespace FlagFootballStudio.Presentation;
 public enum HumanoidAnimationState
 {
     Idle,
+    PreSnapReady,
+    Acceleration,
     Jog,
     Sprint,
-    Turn,
+    Deceleration,
+    RouteCut,
+    CurvedTurn,
+    QuarterbackDropback,
+    QuarterbackSet,
     Throw,
+    CatchPrepare,
     Catch,
-    FlagPull
+    DroppedCatch,
+    InterceptionCatch,
+    FlagPull,
+    PostCatchRun,
+    TouchdownCelebration,
+    Turn = RouteCut
 }

@@ -19,6 +19,11 @@ public partial class PlayerPawn : Node3D
     public Node3D ChestAnchor => _rig.ChestAnchor;
     public Node3D ShoulderAnchor => _rig.ShoulderAnchor;
     public HumanoidAnimationState AnimationState => _rig.AnimationState;
+    public float AnimationMovementSpeed => _rig.AnimationMovementSpeed;
+    public float AnimationStrideFrequency => _rig.AnimationStrideFrequency;
+    public float AnimationBodyLean => _rig.AnimationBodyLean;
+    public float AnimationTurnDegrees => _rig.AnimationTurnDegrees;
+    public float AnimationBlendProgress => _rig.AnimationBlendProgress;
     public FacialExpressionState FacialExpression => _rig.FacialExpression;
     public FacialExpressionPose FacialPose => _rig.FacialPose;
     public float BlinkAmount => _rig.BlinkAmount;
@@ -97,6 +102,7 @@ public partial class PlayerPawn : Node3D
     public Aabb BodyBounds => _rig.BodyBounds;
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _rig.SetAnimationState(state, restart);
+    public void ApplyAnimationCue(HumanoidAnimationCue cue, bool restart = false) => _rig.ApplyAnimationCue(cue, restart);
     public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
         _rig.SetFacialExpression(expression, blendSeconds);
     public void SetEyebrowControl(float raise, float tilt) => _rig.SetEyebrowControl(raise, tilt);

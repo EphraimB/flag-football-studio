@@ -132,6 +132,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFootballSimulationDiagnostics));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-football-simulation"))
             CallDeferred(nameof(RunFootballSimulationValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-sports-animation"))
+            CallDeferred(nameof(RunSportsAnimationValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -173,6 +175,23 @@ public partial class Main : Node3D
         try
         {
             validator.Run();
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
+    private async void RunSportsAnimationValidation()
+    {
+        var validator = new SportsAnimationValidator { Name = "SportsAnimationValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Sports animation quality validation passed.");
             GetTree().Quit();
         }
         catch (Exception exception)

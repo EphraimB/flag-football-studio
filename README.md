@@ -59,10 +59,14 @@ timings when available.
 - `HumanoidMouthRig` supplies simple reusable inner-mouth and upper/lower teeth
   geometry on the head bone. Speech state is transient presentation data and
   is deliberately absent from football domain models and project JSON.
-- `HumanoidAnimator` samples idle, jog, sprint, turn, throw, catch, and
-  flag-pull poses, blending between states before applying them to the shared
-  skeleton. It is presentation-only and does not add animation state to player
-  identity or persisted project data.
+- `FootballAnimationQualityLayer` reads the immutable simulation frame/event
+  stream and derives presentation-only cues for readiness, acceleration,
+  speed-scaled locomotion, route cuts, quarterback footwork, catches, flag
+  pulls, post-catch running, and celebration transitions.
+- `HumanoidAnimator` smoothly blends those cues on the shared skeleton. Stride
+  cadence, athletic lean, plant direction, and restrained head motion follow
+  the simulated speed and change in direction without modifying simulation
+  time, positions, possession, or outcomes.
 - `FootballPlaySimulator` is a Godot-independent fixed-step simulation service.
   It converts a `PlayDefinition` into player/ball frames, assignments, route
   progress, possession state, discrete football events, and a final
@@ -438,6 +442,17 @@ The trace includes formation coordinates, route waypoints and classification,
 route progress, defensive targets, quarterback release timing, pass target and
 ball samples, and the final outcome.
 
+The focused sports-animation validation is available with:
+
+```powershell
+godot --headless --path . -- --validate-sports-animation
+```
+
+It verifies event-aligned quarterback, catch, interception, drop, flag-pull,
+and touchdown poses; speed/cadence coupling; acceleration and braking lean;
+sharp and curved route turns; smooth rig blending; simulation immutability;
+and first-person camera stability across the expanded state set.
+
 After building, run the focused headless validation with:
 
 ```powershell
@@ -614,6 +629,11 @@ exaggerated silhouettes.
 First-person presentation uses render layers rather than a separate body mesh.
 The current procedural torso, limbs, and hands remain low-poly, and extreme
 animation poses can still bring shoulders or hands close to the near plane.
+Sports motion is procedurally posed rather than authored from motion capture:
+feet are not solved with inverse kinematics against the turf, so planted feet
+can slide during fast root movement, hand-to-ball contact remains anchored to
+the existing single catch attachment, and route-cut/celebration variations are
+deterministic templates rather than player-specific performances.
 Free Look has no physical neck/torso follow-through, target tracking respects the
 same realistic yaw/pitch clamps and therefore cannot center targets directly
 behind the player, and controller response uses a fixed Input Map deadzone.

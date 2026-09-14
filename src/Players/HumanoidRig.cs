@@ -35,6 +35,11 @@ public partial class HumanoidRig : Node3D
     public Node3D ChestAnchor => _attachments[HumanoidSkeletonDefinition.Chest];
     public Node3D ShoulderAnchor => _attachments[HumanoidSkeletonDefinition.RightUpperArm];
     public HumanoidAnimationState AnimationState => _animator.State;
+    public float AnimationMovementSpeed => _animator.MovementSpeed;
+    public float AnimationStrideFrequency => _animator.StrideFrequency;
+    public float AnimationBodyLean => _animator.BodyLean;
+    public float AnimationTurnDegrees => _animator.TurnDegrees;
+    public float AnimationBlendProgress => _animator.BlendProgress;
     public FacialExpressionState FacialExpression => _facialController.Expression;
     public FacialExpressionPose FacialPose => _facialController.CurrentPose;
     public float BlinkAmount => _facialController.BlinkAmount;
@@ -121,6 +126,7 @@ public partial class HumanoidRig : Node3D
     }
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _animator.SetState(state, restart);
+    public void ApplyAnimationCue(HumanoidAnimationCue cue, bool restart = false) => _animator.ApplyCue(cue, restart);
     public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
         _facialController.SetExpression(expression, blendSeconds);
     public void SetEyebrowControl(float raise, float tilt) => _facialController.SetEyebrowControl(raise, tilt);

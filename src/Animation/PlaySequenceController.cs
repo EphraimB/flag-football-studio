@@ -10,6 +10,7 @@ namespace FlagFootballStudio.Presentation;
 public partial class PlaySequenceController : Node
 {
     private readonly FootballPlaySimulator _simulator = new();
+    private readonly FootballAnimationQualityLayer _animationQuality = new();
     private PlayDefinition _play = null!;
     private IReadOnlyDictionary<Guid, Node3D> _pawns = null!;
     private Node3D _football = null!;
@@ -23,6 +24,7 @@ public partial class PlaySequenceController : Node
 
     public bool IsRunning { get; private set; }
     public PlaySimulation? LastSimulation { get; private set; }
+    public FootballAnimationTimeline? LastAnimationTimeline { get; private set; }
 
     public void Configure(
         PlayDefinition play,
@@ -61,6 +63,7 @@ public partial class PlaySequenceController : Node
         {
             ResetPlay();
             LastSimulation = _simulator.Simulate(_play, _offense, _defense);
+            LastAnimationTimeline = _animationQuality.Build(LastSimulation);
             _nextEventIndex = 0;
             var stopwatch = Stopwatch.StartNew();
             while (stopwatch.Elapsed.TotalSeconds < LastSimulation.DurationSeconds)
@@ -85,13 +88,17 @@ public partial class PlaySequenceController : Node
 
     private void ApplyFrame(SimulationFrame frame)
     {
+        var animationFrame = LastAnimationTimeline?.FrameAt(frame.TimeSeconds);
         foreach (var state in frame.Players.Values)
         {
             var pawn = Pawn(state.PlayerId, "simulation player");
             pawn.Position = ToGodot(state.Position);
             if (state.FacingDirection.X * state.FacingDirection.X + state.FacingDirection.Z * state.FacingDirection.Z > 0.0001f && pawn is PlayerPawn playerPawn)
                 playerPawn.FaceToward(pawn.GlobalPosition + ToGodot(state.FacingDirection), 0);
-            SetAnimation(pawn, ToAnimation(state.MotionState));
+            if (pawn is PlayerPawn animatedPawn && animationFrame is not null)
+                animatedPawn.ApplyAnimationCue(animationFrame.Players[state.PlayerId]);
+            else
+                SetAnimation(pawn, ToAnimation(state.MotionState));
         }
 
         ApplyBall(frame.Ball);
@@ -129,18 +136,35 @@ public partial class PlaySequenceController : Node
                 : simulationEvent.Description;
 
             if (simulationEvent.Type == SimulationEventType.ThrowReleased && simulationEvent.PlayerId.HasValue)
-                SetAnimation(Pawn(simulationEvent.PlayerId.Value, "quarterback"), HumanoidAnimationState.Throw, true);
+                RestartAnimationCue(simulation, simulationEvent, "quarterback");
             else if (simulationEvent.Type == SimulationEventType.PassCompleted && simulationEvent.PlayerId.HasValue)
-                SetAnimation(Pawn(simulationEvent.PlayerId.Value, "receiver"), HumanoidAnimationState.Catch, true);
+                RestartAnimationCue(simulation, simulationEvent, "receiver");
+            else if (simulationEvent.Type == SimulationEventType.PassDropped && simulationEvent.PlayerId.HasValue)
+                RestartAnimationCue(simulation, simulationEvent, "receiver");
             else if (simulationEvent.Type == SimulationEventType.Intercepted && simulationEvent.PlayerId.HasValue)
-                SetAnimation(Pawn(simulationEvent.PlayerId.Value, "interceptor"), HumanoidAnimationState.Catch, true);
+                RestartAnimationCue(simulation, simulationEvent, "interceptor");
             else if (simulationEvent.Type == SimulationEventType.FlagPullAttempted)
             {
                 foreach (var state in simulation.FrameAt(simulationEvent.TimeSeconds).Players.Values)
                     if (state.MotionState == SimulationMotionState.FlagPull)
                         SetAnimation(Pawn(state.PlayerId, "flag puller"), HumanoidAnimationState.FlagPull, true);
             }
+            else if (simulationEvent.Type == SimulationEventType.Touchdown && simulationEvent.PlayerId.HasValue)
+                RestartAnimationCue(simulation, simulationEvent, "touchdown scorer");
         }
+    }
+
+    private void RestartAnimationCue(PlaySimulation simulation, SimulationEvent simulationEvent, string role)
+    {
+        if (!simulationEvent.PlayerId.HasValue)
+            return;
+        var pawn = Pawn(simulationEvent.PlayerId.Value, role);
+        if (pawn is PlayerPawn playerPawn && LastAnimationTimeline is not null)
+            playerPawn.ApplyAnimationCue(
+                LastAnimationTimeline.FrameAt(simulationEvent.TimeSeconds).Players[simulationEvent.PlayerId.Value], true);
+        else
+            SetAnimation(pawn, ToAnimation(simulation.FrameAt(simulationEvent.TimeSeconds)
+                .Players[simulationEvent.PlayerId.Value].MotionState), true);
     }
 
     private void ResetPlay()
