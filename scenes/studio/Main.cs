@@ -128,7 +128,9 @@ public partial class Main : Node3D
         _dialogueDirector.RawAudioTestRequested += OnRawAudioTestRequested;
         _dialogueDirector.SpatialAudioTestRequested += OnSpatialAudioTestRequested;
 
-        if (OS.GetCmdlineUserArgs().Contains("--validate-football-simulation"))
+        if (OS.GetCmdlineUserArgs().Contains("--diagnose-football-simulation"))
+            CallDeferred(nameof(RunFootballSimulationDiagnostics));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-football-simulation"))
             CallDeferred(nameof(RunFootballSimulationValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
@@ -154,6 +156,14 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunFaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-humanoids"))
             CallDeferred(nameof(RunHumanoidValidation));
+    }
+
+    private void RunFootballSimulationDiagnostics()
+    {
+        var validator = new FootballSimulationValidator { Name = "FootballSimulationDiagnostics" };
+        AddChild(validator);
+        validator.RunDiagnostics();
+        GetTree().Quit();
     }
 
     private void RunFootballSimulationValidation()

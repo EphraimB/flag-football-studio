@@ -424,7 +424,19 @@ godot --headless --path . -- --validate-football-simulation
 It checks snap, route, reaction, throw and catch timing; pass arcs; every
 authored outcome; flag pulls; score, possession, down and distance updates;
 JSON persistence; repeatability; and camera/dialogue timing against the same
-play duration.
+play duration. It also compares deliberately divergent slant, go, out, post,
+and rusher fixtures and fails if their route paths, throw times, trajectories,
+defensive movement, outcomes, or final formations become visually similar.
+
+For a readable frame-by-frame comparison of two authored concepts, run:
+
+```powershell
+godot --headless --path . -- --diagnose-football-simulation
+```
+
+The trace includes formation coordinates, route waypoints and classification,
+route progress, defensive targets, quarterback release timing, pass target and
+ball samples, and the final outcome.
 
 After building, run the focused headless validation with:
 
@@ -635,8 +647,9 @@ The initial football simulator is an authored filmmaking system, not a full
 rules engine. Route classification is inferred from waypoint geometry, player
 speed and acceleration use position-based assignment defaults, zone landmarks
 and one eligible rusher are selected deterministically, and catch, drop,
-interception, touchdown, and boundary results follow the director's saved
-outcome rather than collision probability. Ball flight is an authored arc, not
-rigid-body aerodynamics; blocking, contact, penalties, lateral pitches,
-adaptive quarterback reads, stochastic skill checks, and officiating remain
-out of scope.
+interception, touchdown, boundary, and quarterback flag-pull results follow the
+director's saved outcome rather than collision probability. Those outcomes now
+have distinct deterministic movement and ball-state paths. Ball flight is an
+authored arc, not rigid-body aerodynamics; blocking, contact, penalties,
+lateral pitches, adaptive quarterback reads, stochastic skill checks, and
+officiating remain out of scope.

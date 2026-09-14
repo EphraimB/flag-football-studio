@@ -24,7 +24,8 @@ public enum PlayOutcomeKind
     DroppedPass,
     FlagPullAfterCatch,
     Touchdown,
-    OutOfBounds
+    OutOfBounds,
+    QuarterbackFlagPull
 }
 
 public enum RouteClassification
@@ -184,7 +185,8 @@ public sealed record PlayerSimulationState(
     SimulationVector3 FacingDirection,
     float Speed,
     SimulationMotionState MotionState,
-    RouteProgress? RouteProgress = null);
+    RouteProgress? RouteProgress = null,
+    SimulationVector3? AssignmentTarget = null);
 
 public sealed record BallState(
     BallPhase Phase,

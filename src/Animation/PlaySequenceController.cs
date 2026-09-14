@@ -99,7 +99,8 @@ public partial class PlaySequenceController : Node
 
     private void ApplyBall(BallState ball)
     {
-        if (ball.Phase is BallPhase.Caught or BallPhase.Intercepted && ball.PossessingPlayerId.HasValue)
+        if (ball.Phase is BallPhase.HeldByQuarterback or BallPhase.Caught or BallPhase.Intercepted &&
+            ball.PossessingPlayerId.HasValue)
         {
             if (_attachedBallPlayerId != ball.PossessingPlayerId)
             {
