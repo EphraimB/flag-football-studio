@@ -17,6 +17,8 @@ public enum StudioMaterialKind
     FlagFabric,
     Shoes,
     FieldMarking,
+    SpectatorSkin,
+    SpectatorClothing,
     Generic
 }
 
@@ -45,6 +47,8 @@ public static class StudioMaterialLibrary
     public static StandardMaterial3D Flag(Color color) => Get(StudioMaterialKind.FlagFabric, color);
     public static StandardMaterial3D Shoes(Color color) => Get(StudioMaterialKind.Shoes, color);
     public static StandardMaterial3D FieldMarking(Color color) => Get(StudioMaterialKind.FieldMarking, color);
+    public static StandardMaterial3D SpectatorSkin() => Get(StudioMaterialKind.SpectatorSkin, Colors.White);
+    public static StandardMaterial3D SpectatorClothing() => Get(StudioMaterialKind.SpectatorClothing, Colors.White);
     public static StandardMaterial3D Generic(Color color, bool transparent = false) =>
         Get(StudioMaterialKind.Generic, color, transparent);
 
@@ -80,6 +84,8 @@ public static class StudioMaterialLibrary
         PresentationQualityPreset quality)
     {
         material.Metallic = 0;
+        material.VertexColorUseAsAlbedo = kind is StudioMaterialKind.SpectatorSkin or
+            StudioMaterialKind.SpectatorClothing;
         material.MetallicSpecular = kind switch
         {
             StudioMaterialKind.Hair => 0.34f,
@@ -100,6 +106,8 @@ public static class StudioMaterialLibrary
             StudioMaterialKind.FlagFabric => 0.84f,
             StudioMaterialKind.Shoes => 0.48f,
             StudioMaterialKind.FieldMarking => 0.9f,
+            StudioMaterialKind.SpectatorSkin => 0.68f,
+            StudioMaterialKind.SpectatorClothing => 0.88f,
             _ => 0.78f
         };
 
@@ -131,13 +139,15 @@ public static class StudioMaterialLibrary
             ? BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic
             : BaseMaterial3D.TextureFilterEnum.LinearWithMipmaps;
 
-        material.SubsurfScatterEnabled = kind == StudioMaterialKind.Skin &&
+        material.SubsurfScatterEnabled =
+            (kind is StudioMaterialKind.Skin or StudioMaterialKind.SpectatorSkin) &&
             quality != PresentationQualityPreset.Preview;
         material.SubsurfScatterStrength = quality == PresentationQualityPreset.Final ? 0.16f : 0.1f;
 
-        material.RimEnabled = kind is StudioMaterialKind.Skin or StudioMaterialKind.Hair;
-        material.Rim = kind == StudioMaterialKind.Skin ? 0.08f : 0.12f;
-        material.RimTint = kind == StudioMaterialKind.Skin ? 0.28f : 0.5f;
+        material.RimEnabled = kind is StudioMaterialKind.Skin or StudioMaterialKind.Hair or
+            StudioMaterialKind.SpectatorSkin;
+        material.Rim = kind is StudioMaterialKind.Skin or StudioMaterialKind.SpectatorSkin ? 0.08f : 0.12f;
+        material.RimTint = kind is StudioMaterialKind.Skin or StudioMaterialKind.SpectatorSkin ? 0.28f : 0.5f;
     }
 
     private static Texture2D BuildNormalTexture(int size, float strength, bool weave)

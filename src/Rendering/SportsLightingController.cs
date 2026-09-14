@@ -139,14 +139,8 @@ public partial class SportsLightingController : Node3D
 
     private void BuildFieldLights()
     {
-        var positions = new[]
-        {
-            new Vector3(-12, 13, -16),
-            new Vector3(12, 13, -16),
-            new Vector3(-12, 13, 16),
-            new Vector3(12, 13, 16)
-        };
-        for (var index = 0; index < positions.Length; index++)
+        var positions = VenueLayout.FieldLightPositions;
+        for (var index = 0; index < positions.Count; index++)
         {
             var light = new SpotLight3D
             {

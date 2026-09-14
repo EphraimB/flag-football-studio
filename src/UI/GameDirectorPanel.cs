@@ -22,6 +22,11 @@ public partial class GameDirectorPanel : PanelContainer
     private OptionButton _qualityOption = null!;
     private OptionButton _shadowOption = null!;
     private SpinBox _exposure = null!;
+    private OptionButton _venueOption = null!;
+    private HSlider _spectatorDensity = null!;
+    private Label _spectatorDensityValue = null!;
+    private CheckButton _showSpectators = null!;
+    private CheckButton _showEquipment = null!;
 
     public event Action<Guid>? PlaySelected;
     public event Action? CreateRequested;
@@ -31,6 +36,7 @@ public partial class GameDirectorPanel : PanelContainer
     public event Action? SaveRequested;
     public event Action? LoadRequested;
     public event Action<VisualPresentationSettings>? VisualSettingsChanged;
+    public event Action<VenuePresentationSettings>? EnvironmentSettingsChanged;
 
     public Label StatusLabel => _statusLabel;
 
@@ -174,6 +180,47 @@ public partial class GameDirectorPanel : PanelContainer
         _qualityOption.ItemSelected += _ => RaiseVisualSettingsChanged();
         _shadowOption.ItemSelected += _ => RaiseVisualSettingsChanged();
         _exposure.ValueChanged += _ => RaiseVisualSettingsChanged();
+
+        stack.AddChild(new HSeparator());
+        var environmentTitle = new Label { Text = "VENUE ENVIRONMENT" };
+        environmentTitle.AddThemeFontSizeOverride("font_size", 18);
+        stack.AddChild(environmentTitle);
+        var environment = new GridContainer { Columns = 2 };
+        environment.AddThemeConstantOverride("h_separation", 10);
+        environment.AddThemeConstantOverride("v_separation", 5);
+        stack.AddChild(environment);
+        _venueOption = AddOption(environment, "Venue", Enum.GetNames<VenuePreset>());
+        environment.AddChild(new Label { Text = "Crowd density" });
+        var densityRow = new HBoxContainer();
+        _spectatorDensity = new HSlider
+        {
+            MinValue = 0,
+            MaxValue = 1,
+            Step = 0.05,
+            Value = VenuePresentationSettings.Default.SpectatorDensity,
+            CustomMinimumSize = new Vector2(120, 0),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            TooltipText = "Deterministic seat occupancy; quality also limits preview crowd count."
+        };
+        _spectatorDensityValue = new Label { Text = "45%", CustomMinimumSize = new Vector2(42, 0) };
+        densityRow.AddChild(_spectatorDensity);
+        densityRow.AddChild(_spectatorDensityValue);
+        environment.AddChild(densityRow);
+        environment.AddChild(new Label { Text = "Spectators" });
+        _showSpectators = new CheckButton { Text = "Show", ButtonPressed = true };
+        environment.AddChild(_showSpectators);
+        environment.AddChild(new Label { Text = "Sideline equipment" });
+        _showEquipment = new CheckButton { Text = "Show", ButtonPressed = true };
+        environment.AddChild(_showEquipment);
+        _venueOption.Select((int)VenuePresentationSettings.Default.Preset);
+        _venueOption.ItemSelected += _ => RaiseEnvironmentSettingsChanged();
+        _spectatorDensity.ValueChanged += value =>
+        {
+            _spectatorDensityValue.Text = $"{value * 100:0}%";
+            RaiseEnvironmentSettingsChanged();
+        };
+        _showSpectators.Toggled += _ => RaiseEnvironmentSettingsChanged();
+        _showEquipment.Toggled += _ => RaiseEnvironmentSettingsChanged();
     }
 
     public void RefreshScoreboard()
@@ -236,6 +283,13 @@ public partial class GameDirectorPanel : PanelContainer
             (PresentationQualityPreset)_qualityOption.Selected,
             (ShadowQualityPreset)_shadowOption.Selected,
             (float)_exposure.Value));
+
+    private void RaiseEnvironmentSettingsChanged() => EnvironmentSettingsChanged?.Invoke(
+        new VenuePresentationSettings(
+            (VenuePreset)_venueOption.Selected,
+            (float)_spectatorDensity.Value,
+            _showSpectators.ButtonPressed,
+            _showEquipment.ButtonPressed));
 
     private static string ReadableName(string value)
     {

@@ -17,7 +17,10 @@ clips, per-player voice metadata, timestamped manual visemes, and procedural 3D
 placeholder audio only when explicitly previewing an unrecorded line. The first
 optional local TTS pipeline uses an isolated Piper process, prefers NVIDIA CUDA,
 falls back to CPU, writes portable WAV output, and consumes provider phoneme
-timings when available.
+timings when available. A reusable presentation-only venue now surrounds the
+field with team sidelines, equipment, community-scale seating, deterministic
+instanced spectators, visible field-light structures, and a live physical
+scoreboard.
 
 ## Repository layout
 
@@ -41,6 +44,16 @@ timings when available.
   Lights alter only environment presentation. `VisualPresentationSettings`
   applies Preview, High, or Final material/MSAA/shadow budgets plus an exposure
   and shadow-quality override without entering football or persistence models.
+- `VenueEnvironment` composes reusable procedural sidelines, benches, standing
+  zones, equipment, cones, fencing, walkways, bleachers, light fixtures, and a
+  physical scoreboard around the unchanged playing field. `VenueLayout` keeps
+  visible light fixtures aligned with the Night preset's spotlights and reserves
+  the default sideline-camera lanes. Venue settings are presentation-only.
+- `ProceduralSpectatorSystem` batches deterministic seated and standing people
+  into three shared head/torso/leg `MultiMesh` resources. Skin and clothing
+  colors vary by stable seat index, while venue and quality presets cap instance
+  count without adding crowd AI. `VenueAudioHooks` exposes empty spatial anchors
+  for future ambience, sideline chatter, whistles, and footsteps.
 - `HumanoidSkeletonDefinition` is the single shared 18-bone hierarchy used by
   every Gold and Navy player. `HumanoidSkinnedMesh` builds one reusable indexed
   `ArrayMesh` and one bind-pose `Skin`; every player instance shares that mesh,
@@ -230,6 +243,17 @@ for responsive editing. High enables material detail, skin subsurface
 approximation, and 2× MSAA. Final uses stronger detail, anisotropic filtering,
 4× MSAA, and permits the largest directional shadow atlas. These are transient
 studio-view settings and are not written into `GameProject` JSON.
+
+The adjacent **Venue Environment** controls select Practice Field, Community
+Field, or College Field; set deterministic spectator density; and independently
+show or hide spectators and sideline equipment. Practice uses the smallest
+bleacher/crowd layout, Community is the default local venue, and College adds
+more seating rows and sections without changing the field dimensions. Preview,
+High, and Final progressively raise spectator count and small fixture detail.
+The center of each sideline remains open for sports cameras. The physical
+scoreboard follows the current scores, quarter, and clock whenever a project is
+loaded or a play updates game state. Venue controls are transient presentation
+preferences and do not alter or enter project football data.
 
 ### Camera Director controls
 
@@ -463,6 +487,18 @@ uniform colors, procedural detail quality switching, safe lighting/exposure
 ranges for Player POV, night-light activation, unchanged camera FOV, and exact
 simulation/animation equivalence across all lighting and quality presets.
 
+The focused venue validation is available with:
+
+```powershell
+godot --headless --path . -- --validate-environment
+```
+
+It checks physical scoreboard synchronization, monotonic preset/quality
+complexity, deterministic crowd placement, seated/standing variants, bounded
+MultiMesh/material reuse, sideline/Broadcast/POV camera clearance, future
+spectator viewpoints, empty audio hooks, visibility controls, and byte-for-byte
+equivalent simulation snapshots before and after venue changes.
+
 The focused football simulation validation is available with:
 
 ```powershell
@@ -670,7 +706,7 @@ tongue, mouth collision, phoneme extraction, full lip sync, audio synthesis,
 wrinkles, or photorealistic skin shaders. Extreme settings are deterministic
 but can still look stylized, angular, or show seams and minor overlap where
 feature surfaces meet. AI dialogue, photo reconstruction, cloth simulation,
-crowds, 360 output, and production rendering remain future work. Hair is
+animated crowd behavior, 360 output, and production rendering remain future work. Hair is
 assembled from rigid low-poly caps, panels, capsules, and curl volumes attached
 to the head bone. It has no strands, scalp texture, physics, collision response,
 wind, secondary motion, transparency cards, or photorealistic shading.
@@ -682,10 +718,15 @@ The turf uses deterministic mowing strips, shared procedural normal detail,
 hash marks, end-zone wordmarks, and fixed wear patches. It has no blade
 geometry, displacement, decals, wetness, footprints, or dynamic wear. Football
 seams and laces are simple procedural meshes without stitched displacement.
-Procedural skies do not yet include modeled clouds, stadium structures,
-bounced-light probes, volumetric fog, or cinematic color grading. Field lights
-are reusable spotlights without visible poles/fixtures, IES profiles, or
-physically measured lux values.
+Procedural skies do not yet include modeled clouds, bounced-light probes,
+volumetric fog, or cinematic color grading. Field lights now align with visible
+low-poly poles and fixture bars, but have no IES profiles or physically measured
+lux values. Venue objects remain procedural primitives without collision,
+weathering textures, signs, rail detail, or authored architecture. Spectators
+are rigid low-poly seated/standing silhouettes with deterministic variation;
+they have no animation, reactions, faces, individual accessories, AI, occlusion
+LOD, or ambient audio. The physical scoreboard uses simple 3D labels rather
+than emissive pixel panels and currently shows only score, quarter, and clock.
 
 First-person presentation uses render layers rather than a separate body mesh.
 The current procedural torso, limbs, and hands remain low-poly, and extreme

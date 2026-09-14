@@ -47,7 +47,9 @@ public partial class Main : Node3D
     private CameraDirectorController _cameraController = null!;
     private DialoguePlaybackController _dialogueController = null!;
     private SportsLightingController _lightingController = null!;
+    private VenueEnvironment _venue = null!;
     private VisualPresentationSettings _visualSettings = VisualPresentationSettings.Default;
+    private VenuePresentationSettings _venueSettings = VenuePresentationSettings.Default;
     private Label _statusLabel = null!;
     private PlaySequenceController _sequence = null!;
 
@@ -62,6 +64,7 @@ public partial class Main : Node3D
         _selectedCameraId = _project.Cameras[0].Id;
         AddChild(_fieldScene.Instantiate());
         BuildLightingAndCamera();
+        BuildVenue();
         SpawnTeam(_game.Gold);
         SpawnTeam(_game.Navy);
 
@@ -97,6 +100,7 @@ public partial class Main : Node3D
         _gameDirector.SaveRequested += OnSaveRequested;
         _gameDirector.LoadRequested += OnLoadRequested;
         _gameDirector.VisualSettingsChanged += OnVisualSettingsChanged;
+        _gameDirector.EnvironmentSettingsChanged += OnEnvironmentSettingsChanged;
         _cameraDirector.CameraSelected += OnCameraSelected;
         _cameraDirector.CreateRequested += OnCreateCameraRequested;
         _cameraDirector.RenameRequested += OnRenameCameraRequested;
@@ -139,6 +143,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunSportsAnimationValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-visual-presentation"))
             CallDeferred(nameof(RunVisualPresentationValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-environment"))
+            CallDeferred(nameof(RunEnvironmentValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -181,6 +187,23 @@ public partial class Main : Node3D
         {
             validator.Run();
             GD.Print("Visual presentation validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
+    private void RunEnvironmentValidation()
+    {
+        var validator = new VenueEnvironmentValidator { Name = "VenueEnvironmentValidator" };
+        AddChild(validator);
+        try
+        {
+            validator.Run();
+            GD.Print("Venue environment validation passed.");
             GetTree().Quit();
         }
         catch (Exception exception)
@@ -469,12 +492,29 @@ public partial class Main : Node3D
         _previewCamera.LookAt(new Vector3(0, 0, 2), Vector3.Up);
     }
 
+    private void BuildVenue()
+    {
+        _venue = new VenueEnvironment { Name = "FieldVenue" };
+        AddChild(_venue);
+        _venue.Apply(_venueSettings, _visualSettings.Quality);
+        _venue.SyncScoreboard(_project);
+    }
+
     private void OnVisualSettingsChanged(VisualPresentationSettings settings)
     {
         _visualSettings = settings.Validated();
         _lightingController.Apply(_visualSettings);
+        _venue.Apply(_venueSettings, _visualSettings.Quality);
         _gameDirector.SetStatus(
             $"Visuals: {_visualSettings.Lighting}, {_visualSettings.Quality}, {_visualSettings.Shadows} shadows");
+    }
+
+    private void OnEnvironmentSettingsChanged(VenuePresentationSettings settings)
+    {
+        _venueSettings = settings.Validated();
+        _venue.Apply(_venueSettings, _visualSettings.Quality);
+        _gameDirector.SetStatus(
+            $"Venue: {_venueSettings.Preset}, {_venue.SpectatorCount} spectators");
     }
 
     private void BuildUi()
@@ -678,6 +718,7 @@ public partial class Main : Node3D
             {
                 _project.ApplyPlayOutcome(outcome);
                 _gameDirector.RefreshScoreboard();
+                _venue.SyncScoreboard(_project);
                 _director.SetPossession(_project.Possession.Id);
                 _gameDirector.SetStatus(outcome.Description);
             }
@@ -818,6 +859,7 @@ public partial class Main : Node3D
         _play = project.Plays[0];
         _director.SetGameAndPlay(_game, _play, _project.Possession.Id);
         _gameDirector.SetProject(_project, _play.Id);
+        _venue.SyncScoreboard(_project);
         _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         _playerStudio.SetProject(_project, _game);
         _uniformStudio.SetProject(_project);
