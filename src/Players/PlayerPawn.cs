@@ -14,6 +14,13 @@ public partial class PlayerPawn : Node3D
     public Player? Player { get; private set; }
     public Node3D EyeAnchor => _rig.EyeAnchor;
     public Node3D CatchAnchor => _rig.CatchAnchor;
+    public Node3D QuarterbackHoldAnchor => _rig.QuarterbackHoldAnchor;
+    public Node3D ThrowAnchor => _rig.ThrowAnchor;
+    public Node3D CarryAnchor => _rig.CarryAnchor;
+    public Node3D LeftHandAnchor => _rig.LeftHandAnchor;
+    public Node3D RightHandAnchor => _rig.RightHandAnchor;
+    public Node3D LeftSoleAnchor => _rig.LeftSoleAnchor;
+    public Node3D RightSoleAnchor => _rig.RightSoleAnchor;
     public Node3D MouthAudioAnchor => _rig.MouthAudioAnchor;
     public Node3D HeadAnchor => _rig.HeadAnchor;
     public Node3D ChestAnchor => _rig.ChestAnchor;
@@ -24,6 +31,16 @@ public partial class PlayerPawn : Node3D
     public float AnimationBodyLean => _rig.AnimationBodyLean;
     public float AnimationTurnDegrees => _rig.AnimationTurnDegrees;
     public float AnimationBlendProgress => _rig.AnimationBlendProgress;
+    public float LeftFootIkWeight => _rig.LeftFootIkWeight;
+    public float RightFootIkWeight => _rig.RightFootIkWeight;
+    public bool LeftFootLocked => _rig.LeftFootLocked;
+    public bool RightFootLocked => _rig.RightFootLocked;
+    public float LeftFootContactError => _rig.LeftFootContactError;
+    public float RightFootContactError => _rig.RightFootContactError;
+    public float LeftFootLockDrift => _rig.LeftFootLockDrift;
+    public float RightFootLockDrift => _rig.RightFootLockDrift;
+    public FootballInteractionMode FootballInteractionMode => _rig.FootballInteractionMode;
+    public float ContactRootHeightOffset => _rig.ContactRootHeightOffset;
     public FacialExpressionState FacialExpression => _rig.FacialExpression;
     public FacialExpressionPose FacialPose => _rig.FacialPose;
     public float BlinkAmount => _rig.BlinkAmount;
@@ -103,6 +120,7 @@ public partial class PlayerPawn : Node3D
 
     public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _rig.SetAnimationState(state, restart);
     public void ApplyAnimationCue(HumanoidAnimationCue cue, bool restart = false) => _rig.ApplyAnimationCue(cue, restart);
+    public void SetFootballInteractionMode(FootballInteractionMode mode) => _rig.SetFootballInteractionMode(mode);
     public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
         _rig.SetFacialExpression(expression, blendSeconds);
     public void SetEyebrowControl(float raise, float tilt) => _rig.SetEyebrowControl(raise, tilt);

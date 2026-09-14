@@ -17,6 +17,7 @@ public partial class HumanoidRig : Node3D
     private MeshInstance3D _bodyMesh = null!;
     private MeshInstance3D _faceMesh = null!;
     private HumanoidAnimator _animator = null!;
+    private HumanoidContactSolver _contactSolver = null!;
     private FacialExpressionController _facialController = null!;
     private HumanoidEyeRig _eyeRig = null!;
     private HumanoidHairRig _hairRig = null!;
@@ -25,11 +26,25 @@ public partial class HumanoidRig : Node3D
     private FaceAppearance? _faceAppearance;
     private Node3D _eyeAnchor = null!;
     private Node3D _catchAnchor = null!;
+    private Node3D _quarterbackHoldAnchor = null!;
+    private Node3D _throwAnchor = null!;
+    private Node3D _carryAnchor = null!;
+    private Node3D _leftHandAnchor = null!;
+    private Node3D _rightHandAnchor = null!;
+    private Node3D _leftSoleAnchor = null!;
+    private Node3D _rightSoleAnchor = null!;
     private Node3D _mouthAudioAnchor = null!;
     private bool _firstPersonViewActive;
 
     public Node3D EyeAnchor => _eyeAnchor;
     public Node3D CatchAnchor => _catchAnchor;
+    public Node3D QuarterbackHoldAnchor => _quarterbackHoldAnchor;
+    public Node3D ThrowAnchor => _throwAnchor;
+    public Node3D CarryAnchor => _carryAnchor;
+    public Node3D LeftHandAnchor => _leftHandAnchor;
+    public Node3D RightHandAnchor => _rightHandAnchor;
+    public Node3D LeftSoleAnchor => _leftSoleAnchor;
+    public Node3D RightSoleAnchor => _rightSoleAnchor;
     public Node3D MouthAudioAnchor => _mouthAudioAnchor;
     public Node3D HeadAnchor => _attachments[HumanoidSkeletonDefinition.Head];
     public Node3D ChestAnchor => _attachments[HumanoidSkeletonDefinition.Chest];
@@ -40,6 +55,16 @@ public partial class HumanoidRig : Node3D
     public float AnimationBodyLean => _animator.BodyLean;
     public float AnimationTurnDegrees => _animator.TurnDegrees;
     public float AnimationBlendProgress => _animator.BlendProgress;
+    public float LeftFootIkWeight => _contactSolver.LeftFootWeight;
+    public float RightFootIkWeight => _contactSolver.RightFootWeight;
+    public bool LeftFootLocked => _contactSolver.LeftFootLocked;
+    public bool RightFootLocked => _contactSolver.RightFootLocked;
+    public float LeftFootContactError => _contactSolver.LeftFootContactError;
+    public float RightFootContactError => _contactSolver.RightFootContactError;
+    public float LeftFootLockDrift => _contactSolver.LeftFootLockDrift;
+    public float RightFootLockDrift => _contactSolver.RightFootLockDrift;
+    public FootballInteractionMode FootballInteractionMode => _contactSolver.InteractionMode;
+    public float ContactRootHeightOffset => _contactSolver.RootHeightOffset;
     public FacialExpressionState FacialExpression => _facialController.Expression;
     public FacialExpressionPose FacialPose => _facialController.CurrentPose;
     public float BlinkAmount => _facialController.BlinkAmount;
@@ -80,6 +105,11 @@ public partial class HumanoidRig : Node3D
         _animator = new HumanoidAnimator { Name = "Animator" };
         AddChild(_animator);
         _animator.Configure(_skeleton);
+        _contactSolver = new HumanoidContactSolver { Name = "ContactSolver" };
+        AddChild(_contactSolver);
+        _contactSolver.Configure(_skeleton, this, _leftSoleAnchor, _rightSoleAnchor,
+            _leftHandAnchor, _rightHandAnchor, _quarterbackHoldAnchor, _throwAnchor,
+            _catchAnchor, _carryAnchor);
     }
 
     public void Apply(Player player, PlayerAppearance appearance, UniformDefinition uniform)
@@ -125,8 +155,21 @@ public partial class HumanoidRig : Node3D
             ApplyFirstPersonHeadLayer();
     }
 
-    public void SetAnimationState(HumanoidAnimationState state, bool restart = false) => _animator.SetState(state, restart);
-    public void ApplyAnimationCue(HumanoidAnimationCue cue, bool restart = false) => _animator.ApplyCue(cue, restart);
+    public void SetAnimationState(HumanoidAnimationState state, bool restart = false)
+    {
+        var cue = HumanoidAnimationCue.ForState(state);
+        _animator.ApplyCue(cue, restart);
+        _contactSolver.ApplyCue(cue);
+    }
+
+    public void ApplyAnimationCue(HumanoidAnimationCue cue, bool restart = false)
+    {
+        _animator.ApplyCue(cue, restart);
+        _contactSolver.ApplyCue(cue);
+    }
+
+    public void SetFootballInteractionMode(FootballInteractionMode mode) =>
+        _contactSolver.SetInteractionMode(mode);
     public void SetFacialExpression(FacialExpressionState expression, float blendSeconds = FacialExpressionController.DefaultBlendSeconds) =>
         _facialController.SetExpression(expression, blendSeconds);
     public void SetEyebrowControl(float raise, float tilt) => _facialController.SetEyebrowControl(raise, tilt);
@@ -226,8 +269,24 @@ public partial class HumanoidRig : Node3D
         _mouthAudioAnchor = new Node3D { Name = "MouthAudioAnchor", Position = new Vector3(0, -0.08f, -0.34f) };
         _attachments[HumanoidSkeletonDefinition.Head].AddChild(_mouthAudioAnchor);
 
-        _catchAnchor = new Node3D { Name = "CatchAnchor", Position = new Vector3(0, -0.05f, -0.12f) };
-        _attachments[HumanoidSkeletonDefinition.RightHand].AddChild(_catchAnchor);
+        _leftSoleAnchor = new Node3D { Name = "LeftSoleAnchor", Position = new Vector3(0, -0.11f, 0) };
+        _rightSoleAnchor = new Node3D { Name = "RightSoleAnchor", Position = new Vector3(0, -0.11f, 0) };
+        _attachments[HumanoidSkeletonDefinition.LeftFoot].AddChild(_leftSoleAnchor);
+        _attachments[HumanoidSkeletonDefinition.RightFoot].AddChild(_rightSoleAnchor);
+
+        _leftHandAnchor = new Node3D { Name = "LeftHandAnchor", Position = new Vector3(0, -0.04f, 0) };
+        _rightHandAnchor = new Node3D { Name = "RightHandAnchor", Position = new Vector3(0, -0.04f, 0) };
+        AddChild(_leftHandAnchor);
+        AddChild(_rightHandAnchor);
+
+        _quarterbackHoldAnchor = new Node3D { Name = "QuarterbackHoldAnchor" };
+        _throwAnchor = new Node3D { Name = "ThrowAnchor" };
+        _catchAnchor = new Node3D { Name = "CatchAnchor" };
+        _carryAnchor = new Node3D { Name = "CarryAnchor" };
+        AddChild(_quarterbackHoldAnchor);
+        AddChild(_throwAnchor);
+        AddChild(_catchAnchor);
+        AddChild(_carryAnchor);
     }
 
     private void BuildSkinnedBody()

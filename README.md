@@ -62,11 +62,23 @@ timings when available.
 - `FootballAnimationQualityLayer` reads the immutable simulation frame/event
   stream and derives presentation-only cues for readiness, acceleration,
   speed-scaled locomotion, route cuts, quarterback footwork, catches, flag
-  pulls, post-catch running, and celebration transitions.
+  pulls, post-catch running, and celebration transitions. It also derives a
+  travel-distance gait phase and independent left/right support weights; those
+  values never feed back into simulation state.
 - `HumanoidAnimator` smoothly blends those cues on the shared skeleton. Stride
   cadence, athletic lean, plant direction, and restrained head motion follow
   the simulated speed and change in direction without modifying simulation
   time, positions, possession, or outcomes.
+- `HumanoidContactSolver` is a post-animation presentation pass. It samples an
+  `IGroundSurfaceSampler`, blends root-height and bounded foot-pose corrections,
+  and briefly retains high-weight support feet at their turf contact point.
+  The initial sampler represents the flat field, while the sampler boundary can
+  later be backed by terrain/raycast data without changing football rules.
+- `FootballInteractionResolver` maps authoritative ball phase plus presentation
+  animation state to reusable QB-hold, throwing-hand, two-hand catch, and carry
+  anchors. `PlaySequenceController` reparents only the rendered football as it
+  advances through hold, release, free flight, catch, and carry; ball-state
+  timing and world-space flight still come entirely from the simulator.
 - `FootballPlaySimulator` is a Godot-independent fixed-step simulation service.
   It converts a `PlayDefinition` into player/ball frames, assignments, route
   progress, possession state, discrete football events, and a final
@@ -451,7 +463,10 @@ godot --headless --path . -- --validate-sports-animation
 It verifies event-aligned quarterback, catch, interception, drop, flag-pull,
 and touchdown poses; speed/cadence coupling; acceleration and braking lean;
 sharp and curved route turns; smooth rig blending; simulation immutability;
-and first-person camera stability across the expanded state set.
+idle/pre-snap turf contact; planted jog, sprint, and route-cut support; two-hand
+QB/catch/interception alignment; throw-hand release; dropped-pass separation;
+post-catch carry attachment; and first-person camera stability across the
+expanded state set.
 
 After building, run the focused headless validation with:
 
@@ -630,9 +645,14 @@ First-person presentation uses render layers rather than a separate body mesh.
 The current procedural torso, limbs, and hands remain low-poly, and extreme
 animation poses can still bring shoulders or hands close to the near plane.
 Sports motion is procedurally posed rather than authored from motion capture:
-feet are not solved with inverse kinematics against the turf, so planted feet
-can slide during fast root movement, hand-to-ball contact remains anchored to
-the existing single catch attachment, and route-cut/celebration variations are
+ground contact uses bounded bone-position correction and short support locks,
+not a full analytic two-bone leg IK solver. The current flat sampler has no
+raycasts, slope alignment, ankle roll, collision response, predictive steps, or
+toe pivot, so extreme speed, long frame gaps, and correction-limit exhaustion
+can still produce some sliding or limb stretch. Hand targeting similarly uses
+bounded wrist correction rather than shoulder/elbow IK or finger posing; the
+ball aligns to procedural palm midpoints and can show gaps or mesh stretching
+at extreme body proportions. Route-cut and celebration variations remain
 deterministic templates rather than player-specific performances.
 Free Look has no physical neck/torso follow-through, target tracking respects the
 same realistic yaw/pitch clamps and therefore cannot center targets directly

@@ -20,6 +20,7 @@ public sealed class FootballAnimationQualityLayer
 
         var assignments = simulation.Assignments.ToDictionary(item => item.PlayerId);
         var context = AnimationContext.From(simulation);
+        var travelDistances = simulation.Frames[0].Players.Keys.ToDictionary(playerId => playerId, _ => 0f);
         var frames = new List<FootballAnimationFrame>(simulation.Frames.Count);
         for (var index = 0; index < simulation.Frames.Count; index++)
         {
@@ -38,8 +39,15 @@ public sealed class FootballAnimationQualityLayer
                 var strideFrequency = ResolveStrideFrequency(animationState, speed, normalizedSpeed);
                 var lean = ResolveBodyLean(animationState, acceleration, normalizedSpeed);
                 var headMotion = ResolveHeadMotion(animationState, normalizedSpeed);
+                if (index > 0)
+                    travelDistances[state.PlayerId] += simulation.Frames[index - 1].Players[state.PlayerId].Position
+                        .DistanceTo(state.Position);
+                var strideLength = Math.Clamp(1.35f - normalizedSpeed * 0.28f, 0.9f, 1.35f);
+                var gaitPhase = strideFrequency <= 0 ? 0 : travelDistances[state.PlayerId] / strideLength % 1f;
+                var (leftPlant, rightPlant) = ResolveFootPlant(animationState, gaitPhase, Math.Sign(turnDegrees));
                 cues[state.PlayerId] = new HumanoidAnimationCue(animationState, speed, normalizedSpeed,
-                    acceleration, Math.Abs(turnDegrees), Math.Sign(turnDegrees), strideFrequency, lean, headMotion);
+                    acceleration, Math.Abs(turnDegrees), Math.Sign(turnDegrees), strideFrequency, lean, headMotion,
+                    gaitPhase, leftPlant, rightPlant);
             }
             frames.Add(new FootballAnimationFrame(simulationFrame.TimeSeconds,
                 new ReadOnlyDictionary<Guid, HumanoidAnimationCue>(cues)));
@@ -173,6 +181,40 @@ public sealed class FootballAnimationQualityLayer
         HumanoidAnimationState.RouteCut or HumanoidAnimationState.CurvedTurn => 0.22f,
         _ => 0.12f
     };
+
+    private static (float Left, float Right) ResolveFootPlant(
+        HumanoidAnimationState state, float gaitPhase, int turnDirection)
+    {
+        if (state is HumanoidAnimationState.Idle or HumanoidAnimationState.PreSnapReady or
+            HumanoidAnimationState.QuarterbackSet or HumanoidAnimationState.CatchPrepare or
+            HumanoidAnimationState.Catch or HumanoidAnimationState.DroppedCatch or
+            HumanoidAnimationState.InterceptionCatch or HumanoidAnimationState.FlagPull or
+            HumanoidAnimationState.TouchdownCelebration)
+            return (0.92f, 0.92f);
+        if (state == HumanoidAnimationState.RouteCut)
+            return turnDirection >= 0 ? (0.18f, 1f) : (1f, 0.18f);
+        if (state == HumanoidAnimationState.CurvedTurn)
+            return turnDirection >= 0 ? (0.35f, 0.78f) : (0.78f, 0.35f);
+
+        var leftDistance = CircularDistance(gaitPhase, 0.08f);
+        var rightDistance = CircularDistance(gaitPhase, 0.58f);
+        var support = state == HumanoidAnimationState.Sprint ? 0.72f :
+            state == HumanoidAnimationState.PostCatchRun ? 0.78f : 0.9f;
+        var left = Math.Clamp((0.2f - leftDistance) / 0.2f, 0, 1) * support;
+        var right = Math.Clamp((0.2f - rightDistance) / 0.2f, 0, 1) * support;
+        if (state == HumanoidAnimationState.Deceleration)
+        {
+            left = Math.Max(left, 0.55f);
+            right = Math.Max(right, 0.55f);
+        }
+        return (left, right);
+    }
+
+    private static float CircularDistance(float left, float right)
+    {
+        var distance = Math.Abs(left - right);
+        return Math.Min(distance, 1 - distance);
+    }
 
     private sealed record AnimationContext(
         Guid QuarterbackId,

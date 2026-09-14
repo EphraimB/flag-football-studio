@@ -183,9 +183,9 @@ public partial class HumanoidAnimator : Node
         Dictionary<string, Vector3> pose, float time, float stride, float lean,
         bool sprint, bool protectBall = false)
     {
-        var cadence = MathF.Max(0.5f, _strideFrequency) * Mathf.Tau;
-        var swing = Mathf.Sin(time * cadence) * stride;
-        var vertical = Mathf.Abs(Mathf.Sin(time * cadence)) * 0.025f * _headMotionScale;
+        var gaitAngle = GaitAngle(time);
+        var swing = Mathf.Sin(gaitAngle) * stride;
+        var vertical = Mathf.Abs(Mathf.Sin(gaitAngle)) * 0.025f * _headMotionScale;
         var armScale = sprint ? 1.0f : 0.82f;
         pose[HumanoidSkeletonDefinition.Hips] = new Vector3(vertical, 0, 0);
         pose[HumanoidSkeletonDefinition.Spine] = new Vector3(-lean, 0, 0);
@@ -229,8 +229,7 @@ public partial class HumanoidAnimator : Node
 
     private void AddQuarterbackDropbackPose(Dictionary<string, Vector3> pose, float time)
     {
-        var cadence = MathF.Max(1.5f, _strideFrequency) * Mathf.Tau;
-        var step = Mathf.Sin(time * cadence) * 0.34f;
+        var step = Mathf.Sin(GaitAngle(time)) * 0.34f;
         pose[HumanoidSkeletonDefinition.Hips] = new Vector3(-0.08f, 0, 0);
         pose[HumanoidSkeletonDefinition.Spine] = new Vector3(0.06f, 0, 0);
         pose[HumanoidSkeletonDefinition.LeftUpperLeg] = new Vector3(step, 0, -0.08f);
@@ -317,4 +316,8 @@ public partial class HumanoidAnimator : Node
         Mathf.LerpAngle(from.X, to.X, weight),
         Mathf.LerpAngle(from.Y, to.Y, weight),
         Mathf.LerpAngle(from.Z, to.Z, weight));
+
+    private float GaitAngle(float time) => _targetCue.GaitPhase >= 0
+        ? _targetCue.GaitPhase * Mathf.Tau
+        : time * MathF.Max(0.5f, _strideFrequency) * Mathf.Tau;
 }

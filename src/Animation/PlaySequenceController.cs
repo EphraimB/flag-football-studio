@@ -21,6 +21,7 @@ public partial class PlaySequenceController : Node
     private Vector3 _ballStart;
     private int _nextEventIndex;
     private Guid? _attachedBallPlayerId;
+    private Node3D? _attachedBallAnchor;
 
     public bool IsRunning { get; private set; }
     public PlaySimulation? LastSimulation { get; private set; }
@@ -109,13 +110,27 @@ public partial class PlaySequenceController : Node
         if (ball.Phase is BallPhase.HeldByQuarterback or BallPhase.Caught or BallPhase.Intercepted &&
             ball.PossessingPlayerId.HasValue)
         {
-            if (_attachedBallPlayerId != ball.PossessingPlayerId)
+            var owner = Pawn(ball.PossessingPlayerId.Value, "ball carrier");
+            var anchor = owner;
+            if (owner is PlayerPawn pawn)
             {
-                var owner = Pawn(ball.PossessingPlayerId.Value, "ball carrier");
-                var anchor = owner is PlayerPawn pawn ? pawn.CatchAnchor : owner;
+                var interaction = FootballInteractionResolver.Resolve(ball, pawn.AnimationState);
+                pawn.SetFootballInteractionMode(interaction);
+                anchor = interaction switch
+                {
+                    FootballInteractionMode.QuarterbackHold => pawn.QuarterbackHoldAnchor,
+                    FootballInteractionMode.ThrowingHand => pawn.ThrowAnchor,
+                    FootballInteractionMode.CatchHands => pawn.CatchAnchor,
+                    FootballInteractionMode.Carry => pawn.CarryAnchor,
+                    _ => pawn.CatchAnchor
+                };
+            }
+            if (_attachedBallPlayerId != ball.PossessingPlayerId || _attachedBallAnchor != anchor)
+            {
                 _football.Reparent(anchor, false);
                 _football.Position = Vector3.Zero;
                 _attachedBallPlayerId = ball.PossessingPlayerId;
+                _attachedBallAnchor = anchor;
             }
             return;
         }
@@ -123,6 +138,7 @@ public partial class PlaySequenceController : Node
         if (_football.GetParent() != _footballHome)
             _football.Reparent(_footballHome, true);
         _attachedBallPlayerId = null;
+        _attachedBallAnchor = null;
         _football.GlobalPosition = ToGodot(ball.Position);
     }
 
@@ -182,6 +198,7 @@ public partial class PlaySequenceController : Node
             _football.Reparent(_footballHome, false);
         _football.Position = _ballStart;
         _attachedBallPlayerId = null;
+        _attachedBallAnchor = null;
     }
 
     private Node3D Pawn(Guid playerId, string role)

@@ -61,17 +61,17 @@ public partial class HumanoidFoundationValidator : Node
         appearance.SetBodyProportions(0.7f, 1.3f, 0.7f, 1.3f, 0.75f, 0.75f);
         primaryRig.Apply(player, appearance, uniform);
         await NextFrame();
-        var shortArmAnchor = primaryRig.CatchAnchor.GlobalPosition;
+        var shortArmAnchor = primaryRig.RightHandAnchor.GlobalPosition;
         var shortLegFoot = primaryRig.BoneGlobalPose(HumanoidSkeletonDefinition.RightFoot).Origin;
         ValidateAnchors(primaryRig, "minimum limb proportions");
 
         appearance.SetBodyProportions(1.3f, 0.7f, 1.3f, 0.7f, 1.25f, 1.25f);
         primaryRig.Apply(player, appearance, uniform);
         await NextFrame();
-        var longArmAnchor = primaryRig.CatchAnchor.GlobalPosition;
+        var longArmAnchor = primaryRig.RightHandAnchor.GlobalPosition;
         var longLegFoot = primaryRig.BoneGlobalPose(HumanoidSkeletonDefinition.RightFoot).Origin;
         ValidateAnchors(primaryRig, "maximum limb proportions");
-        Require(shortArmAnchor.DistanceTo(longArmAnchor) > 0.05f, $"Arm-length morphing did not move the hand anchor: {shortArmAnchor} -> {longArmAnchor}.");
+        Require(shortArmAnchor.DistanceTo(longArmAnchor) > 0.05f, $"Arm-length morphing did not move the solved hand anchor: {shortArmAnchor} -> {longArmAnchor}.");
         Require(shortLegFoot.DistanceTo(longLegFoot) > 0.05f, "Leg-length morphing did not move the foot bone.");
 
         var animatedBones = new Dictionary<HumanoidAnimationState, string>

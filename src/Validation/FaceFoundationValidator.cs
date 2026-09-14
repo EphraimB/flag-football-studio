@@ -143,19 +143,21 @@ public partial class FaceFoundationValidator : Node
 
         var bodyMesh = rig.BodyMeshResource;
         var eyeLocal = rig.EyeAnchor.Position;
-        var handLocal = rig.CatchAnchor.Position;
+        var handBoneBefore = rig.BoneGlobalPose(HumanoidSkeletonDefinition.RightHand).Origin;
         var initialSignature = HumanoidFaceMesh.TopologySignature(rig.FaceMeshResource);
 
         appearance.Face.SetParameters(
             0.75f, 1.25f, 1.25f, 1.25f, 1.25f, 0.2f, 1.25f, 1.25f, 1.25f, 1.25f,
             1.25f, 0.2f, 1.25f, 1.25f, 1.25f, 0.2f, 1.25f, 1.25f, 1.25f, 0.2f);
         rig.Apply(player, appearance, uniform);
+        var handBoneAfter = rig.BoneGlobalPose(HumanoidSkeletonDefinition.RightHand).Origin;
         await NextFrame();
 
         Require(ReferenceEquals(bodyMesh, rig.BodyMeshResource), "Facial morphing replaced the shared skinned body resource.");
         Require(HumanoidFaceMesh.TopologySignature(rig.FaceMeshResource) == initialSignature, "Facial morphing changed runtime topology.");
         Require(rig.EyeAnchor.Position.IsEqualApprox(eyeLocal), "Facial morphing moved the stable eye/POV anchor.");
-        Require(rig.CatchAnchor.Position.IsEqualApprox(handLocal), "Facial morphing moved the hand anchor.");
+        Require(handBoneAfter.DistanceTo(handBoneBefore) < 0.001f,
+            "Facial morphing changed the hand-bone transform.");
         ValidateVector(rig.EyeAnchor.GlobalPosition, "POV anchor after facial extremes");
         ValidateVector(rig.CatchAnchor.GlobalPosition, "hand anchor after facial extremes");
 

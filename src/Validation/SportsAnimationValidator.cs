@@ -58,7 +58,8 @@ public partial class SportsAnimationValidator : Node3D
         ValidateOutcomePose(game, simulator, quality, PlayOutcomeKind.Touchdown,
             SimulationEventType.Touchdown, HumanoidAnimationState.TouchdownCelebration);
 
-        await ValidateRigAndPovAsync(game, project, routePlay, receiver, timeline);
+        ValidateFootballAttachmentTiming(game, simulator, quality, simulation, timeline, receiver.Id, quarterback.Id);
+        await ValidateRigAndPovAsync(game, project, routePlay, receiver, timeline, simulation);
     }
 
     private static void ValidateEventAlignment(
@@ -149,7 +150,8 @@ public partial class SportsAnimationValidator : Node3D
         GameProject project,
         PlayDefinition play,
         Player receiver,
-        FootballAnimationTimeline timeline)
+        FootballAnimationTimeline timeline,
+        PlaySimulation simulation)
     {
         var pawn = new PlayerPawn { Name = "SportsAnimationValidationPawn" };
         pawn.Configure(receiver, project.AppearanceFor(receiver.Id), project.ActiveUniformFor(game.Gold.Id));
@@ -169,6 +171,8 @@ public partial class SportsAnimationValidator : Node3D
         cameraDefinition.SetPlayer(receiver.Id);
         cameraController.Preview(cameraDefinition, play);
         await NextFrame();
+
+        await ValidateContactAndHandsAsync(pawn, timeline);
 
         var representativeStates = new[]
         {
@@ -214,6 +218,156 @@ public partial class SportsAnimationValidator : Node3D
         cameraHome.QueueFree();
         pawn.QueueFree();
     }
+
+    private async Task ValidateContactAndHandsAsync(PlayerPawn pawn, FootballAnimationTimeline timeline)
+    {
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.Idle), true);
+        await WaitSeconds(0.3);
+        Require(pawn.LeftFootContactError < 0.08f && pawn.RightFootContactError < 0.08f,
+            "Idle soles did not settle on the turf.");
+
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.PreSnapReady), true);
+        await WaitSeconds(0.35);
+        Require(pawn.LeftFootIkWeight > 0.8f && pawn.RightFootIkWeight > 0.8f,
+            "Grounded pre-snap stance did not blend both feet into contact.");
+        Require(pawn.LeftFootContactError < 0.08f && pawn.RightFootContactError < 0.08f,
+            $"Idle/pre-snap soles did not settle on the turf (left={pawn.LeftFootContactError:0.000}@{pawn.LeftSoleAnchor.GlobalPosition.Y:0.000}, right={pawn.RightFootContactError:0.000}@{pawn.RightSoleAnchor.GlobalPosition.Y:0.000}, root={pawn.ContactRootHeightOffset:0.000}).");
+
+        await ValidatePlantedLocomotionAsync(pawn, HumanoidAnimationState.Jog, 0.08f, true);
+        await ValidatePlantedLocomotionAsync(pawn, HumanoidAnimationState.Sprint, 0.58f, false);
+
+        var cutCue = timeline.Frames.Select(frame => frame.Players.Values)
+            .SelectMany(cues => cues)
+            .First(cue => cue.State == HumanoidAnimationState.RouteCut);
+        pawn.ApplyAnimationCue(cutCue, true);
+        await WaitSeconds(0.24);
+        var expectedLocked = cutCue.LeftFootPlantWeight > cutCue.RightFootPlantWeight
+            ? pawn.LeftFootLocked : pawn.RightFootLocked;
+        Require(expectedLocked && Math.Max(pawn.LeftFootIkWeight, pawn.RightFootIkWeight) > 0.75f,
+            "Sharp route cut did not establish a dominant planted foot.");
+
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.QuarterbackSet), true);
+        pawn.SetFootballInteractionMode(FootballInteractionMode.QuarterbackHold);
+        await WaitSeconds(0.3);
+        ValidateTwoHandAnchor(pawn.QuarterbackHoldAnchor, pawn, "quarterback hold");
+
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.CatchPrepare), true);
+        pawn.SetFootballInteractionMode(FootballInteractionMode.CatchHands);
+        await WaitSeconds(0.3);
+        ValidateTwoHandAnchor(pawn.CatchAnchor, pawn, "catch preparation");
+
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.InterceptionCatch), true);
+        pawn.SetFootballInteractionMode(FootballInteractionMode.CatchHands);
+        await WaitSeconds(0.3);
+        ValidateTwoHandAnchor(pawn.CatchAnchor, pawn, "interception catch");
+
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.DroppedCatch), true);
+        pawn.SetFootballInteractionMode(FootballInteractionMode.CatchHands);
+        await WaitSeconds(0.16);
+        var initialSeparation = pawn.LeftHandAnchor.GlobalPosition.DistanceTo(pawn.RightHandAnchor.GlobalPosition);
+        await WaitSeconds(0.34);
+        var droppedSeparation = pawn.LeftHandAnchor.GlobalPosition.DistanceTo(pawn.RightHandAnchor.GlobalPosition);
+        Require(droppedSeparation > initialSeparation + 0.08f,
+            "Dropped-pass pose did not separate the hands after the failed catch.");
+
+        pawn.ApplyAnimationCue(HumanoidAnimationCue.ForState(HumanoidAnimationState.PostCatchRun), true);
+        pawn.SetFootballInteractionMode(FootballInteractionMode.Carry);
+        await WaitSeconds(0.3);
+        Require(pawn.CarryAnchor.GlobalPosition.DistanceTo(pawn.RightHandAnchor.GlobalPosition) < 0.3f,
+            "Post-catch carry anchor separated from the carrying hand.");
+        Require(pawn.CarryAnchor.GlobalPosition.DistanceTo(pawn.EyeAnchor.GlobalPosition) > 0.35f,
+            "Post-catch ball carry anchor is too close to the Player POV camera mount.");
+    }
+
+    private async Task ValidatePlantedLocomotionAsync(
+        PlayerPawn pawn, HumanoidAnimationState state, float gaitPhase, bool leftPlant)
+    {
+        var cue = HumanoidAnimationCue.ForState(state) with
+        {
+            GaitPhase = gaitPhase,
+            LeftFootPlantWeight = leftPlant ? 1 : 0,
+            RightFootPlantWeight = leftPlant ? 0 : 1
+        };
+        pawn.ApplyAnimationCue(cue, true);
+        await WaitSeconds(0.2);
+        var sole = leftPlant ? pawn.LeftSoleAnchor : pawn.RightSoleAnchor;
+        var soleStart = sole.GlobalPosition;
+        var rootStart = pawn.GlobalPosition;
+        for (var index = 0; index < 3; index++)
+        {
+            pawn.GlobalPosition += new Vector3(0, 0, 0.1f);
+            pawn.ApplyAnimationCue(cue);
+            await NextFrame();
+        }
+        var rootTravel = PlanarDistance(rootStart, pawn.GlobalPosition);
+        var soleTravel = PlanarDistance(soleStart, sole.GlobalPosition);
+        var locked = leftPlant ? pawn.LeftFootLocked : pawn.RightFootLocked;
+        Require(locked && soleTravel < rootTravel * 0.75f,
+            $"Planted {state} foot slid with the root instead of retaining turf contact " +
+            $"(locked={locked}, sole={soleTravel:0.000}, root={rootTravel:0.000}, " +
+            $"weight={(leftPlant ? pawn.LeftFootIkWeight : pawn.RightFootIkWeight):0.00}).");
+    }
+
+    private static void ValidateFootballAttachmentTiming(
+        Game game,
+        FootballPlaySimulator simulator,
+        FootballAnimationQualityLayer quality,
+        PlaySimulation simulation,
+        FootballAnimationTimeline timeline,
+        Guid receiverId,
+        Guid quarterbackId)
+    {
+        var release = Event(simulation, SimulationEventType.ThrowReleased).TimeSeconds;
+        var heldFrame = simulation.FrameAt(release - 0.05);
+        var heldCue = timeline.FrameAt(release - 0.05).Players[quarterbackId];
+        Require(heldFrame.Ball.Phase == BallPhase.HeldByQuarterback &&
+                FootballInteractionResolver.Resolve(heldFrame.Ball, heldCue.State) == FootballInteractionMode.ThrowingHand,
+            "Football did not transition from two-hand QB hold to the throwing hand before release.");
+        var flightFrame = simulation.FrameAt(release + 0.05);
+        Require(flightFrame.Ball.Phase == BallPhase.PassFlight &&
+                FootballInteractionResolver.Resolve(flightFrame.Ball,
+                    timeline.FrameAt(release + 0.05).Players[quarterbackId].State) == FootballInteractionMode.None,
+            "Football remained hand-attached after the authored throw release timestamp.");
+
+        var catchTime = Event(simulation, SimulationEventType.PassCompleted).TimeSeconds;
+        var catchFrame = simulation.FrameAt(catchTime);
+        Require(FootballInteractionResolver.Resolve(catchFrame.Ball,
+                    timeline.FrameAt(catchTime).Players[receiverId].State) == FootballInteractionMode.CatchHands,
+            "Completed pass did not attach between the catch hands.");
+        var carryTime = Math.Min(simulation.DurationSeconds - 0.05, catchTime + 0.55);
+        Require(FootballInteractionResolver.Resolve(simulation.FrameAt(carryTime).Ball,
+                    timeline.FrameAt(carryTime).Players[receiverId].State) == FootballInteractionMode.Carry,
+            "Caught football did not transition to the post-catch carry anchor.");
+
+        var interceptionPlay = PlayDefinition.CreatePrototype(game, "Attachment interception");
+        interceptionPlay.SetSimulationSettings(PlaySimulationSettings.Default with
+        {
+            IntendedOutcome = PlayOutcomeKind.Interception
+        });
+        var interception = simulator.Simulate(interceptionPlay, game.Gold, game.Navy);
+        var interceptionTimeline = quality.Build(interception);
+        var interceptionEvent = Event(interception, SimulationEventType.Intercepted);
+        Require(interceptionEvent.PlayerId.HasValue &&
+                FootballInteractionResolver.Resolve(interception.FrameAt(interceptionEvent.TimeSeconds).Ball,
+                    interceptionTimeline.FrameAt(interceptionEvent.TimeSeconds)
+                        .Players[interceptionEvent.PlayerId.Value].State) == FootballInteractionMode.CatchHands,
+            "Interception did not use the two-hand catch attachment.");
+    }
+
+    private static void ValidateTwoHandAnchor(Node3D anchor, PlayerPawn pawn, string context)
+    {
+        var midpoint = pawn.LeftHandAnchor.GlobalPosition.Lerp(pawn.RightHandAnchor.GlobalPosition, 0.5f);
+        Require(anchor.GlobalPosition.DistanceTo(midpoint) < 0.025f,
+            $"{context} football anchor was not centered between both hands.");
+        Require(anchor.GlobalPosition.DistanceTo(pawn.LeftHandAnchor.GlobalPosition) < 0.32f &&
+                anchor.GlobalPosition.DistanceTo(pawn.RightHandAnchor.GlobalPosition) < 0.32f,
+            $"{context} hands did not converge around the football " +
+            $"(left={anchor.GlobalPosition.DistanceTo(pawn.LeftHandAnchor.GlobalPosition):0.000}, " +
+            $"right={anchor.GlobalPosition.DistanceTo(pawn.RightHandAnchor.GlobalPosition):0.000}).");
+    }
+
+    private static float PlanarDistance(Vector3 left, Vector3 right) =>
+        new Vector2(left.X - right.X, left.Z - right.Z).Length();
 
     private static string Snapshot(PlaySimulation simulation) => string.Join('|',
         simulation.Frames.SelectMany(frame => frame.Players.OrderBy(item => item.Key)
