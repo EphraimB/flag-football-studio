@@ -77,6 +77,7 @@ quality settings, is not persisted.
 | [Simulation](docs/SIMULATION.md) | Deterministic play model, outcomes, animation integration, and diagnostics |
 | [Cameras](docs/CAMERAS.md) | Camera definitions, cuts, Player POV, sideline operation, and limitations |
 | [Characters](docs/CHARACTERS.md) | Humanoid rig, customization, face/hair/mouth systems, and animation |
+| [Player Genesis](docs/PLAYER_GENESIS.md) | Staged identity workflow, semantic editing, locks, personality, and future local direction contract |
 | [Digital-Human Migration](docs/DIGITAL_HUMAN_MIGRATION.md) | Audited procedural-to-production character plan and current blockers |
 | [Character Asset Contract](docs/CHARACTER_ASSET_CONTRACT.md) | Required GLB structure, skeleton, anchors, blend shapes, materials, and LODs |
 | [Audio](docs/AUDIO.md) | Voice assets, lip sync, Piper, spatial dialogue, ambience, and diagnostics |

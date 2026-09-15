@@ -58,6 +58,9 @@ public partial class PlayerPawn : Node3D
     public CharacterVisualBackend RequestedVisualBackend => _rig.RequestedBackend;
     public CharacterVisualBackend ActiveVisualBackend => _rig.ActiveBackend;
     public CharacterVisualStatus VisualStatus => _rig.Status;
+    public GenesisStage GenesisStage => _rig.GenesisStage;
+    public GenesisMaterializationState GenesisMaterializationState => _rig.GenesisMaterializationState;
+    public bool GenesisHologramActive => _rig.GenesisHologramActive;
 
     public void Configure(Player player, PlayerAppearance appearance, UniformDefinition uniform)
     {
@@ -117,6 +120,8 @@ public partial class PlayerPawn : Node3D
     }
 
     public void SetFirstPersonView(bool active) => _rig.SetFirstPersonView(active);
+    public void SetGenesisPresentation(GenesisStage stage, GenesisMaterializationState state, float heightMeters) =>
+        _rig.SetGenesisPresentation(stage, state, heightMeters);
     public bool HeadGeometryVisibleTo(Camera3D camera) => _rig.HeadGeometryVisibleTo(camera);
     public bool BodyGeometryVisibleTo(Camera3D camera) => _rig.BodyGeometryVisibleTo(camera);
     public Aabb BodyBounds => _rig.BodyBounds;

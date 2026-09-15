@@ -27,7 +27,8 @@ animation, camera, and audio improvements from changing their outcomes.
 
 ```text
 GameProject
-  ├─ teams, roster, appearances, uniforms
+  ├─ teams, roster, character specifications, appearances, uniforms
+  ├─ independent personality and voice profiles
   ├─ ordered PlayDefinitions
   ├─ CameraDefinitions and per-play CameraCuts
   └─ DialogueSequences, voice profiles, audio references, visemes
@@ -67,7 +68,9 @@ registry or resolver and becomes available to ambient TTS immediately.
 
 `GameProject` owns home and away teams, score, quarter, clock, down, distance,
 possession, ordered plays, cameras, cuts, dialogue, voice profiles, appearances,
-and team uniform libraries.
+versioned character specifications, personality profiles, and team uniform
+libraries. Genesis specifications hold durable identity and locks; edit history
+and materialization progress remain transient.
 
 `ProjectJsonSerializer` currently uses format version 1. Missing collections in
 older prototype files receive compatible defaults where supported.
@@ -115,6 +118,15 @@ catch, carry, and sole anchors remain the camera/audio/contact integration
 contract. See [Digital-Human Migration](DIGITAL_HUMAN_MIGRATION.md) and the
 [Character Asset Contract](CHARACTER_ASSET_CONTRACT.md).
 
+Player Genesis adds a Godot-independent `CharacterSpecification` above the
+existing appearance models. Validated semantic edit plans update this identity,
+then `CharacterSpecificationAppearanceAdapter` projects supported values into
+the current procedural visual. Locks and specifications persist; grouped
+undo/redo and Waiting/Processing/Applying/Materializing states do not. An
+independent `PlayerPersonalityProfile` can feed presentation through a one-way
+mapper but cannot access or alter football simulation. See
+[Player Genesis](PLAYER_GENESIS.md).
+
 ### Cameras and dialogue
 
 `CameraDefinition` and `CameraCut` are authored data.
@@ -157,6 +169,7 @@ data directories are retained with `.gitkeep` files.
 
 - [Simulation](SIMULATION.md)
 - [Characters](CHARACTERS.md)
+- [Player Genesis](PLAYER_GENESIS.md)
 - [Digital-Human Migration](DIGITAL_HUMAN_MIGRATION.md)
 - [Character Asset Contract](CHARACTER_ASSET_CONTRACT.md)
 - [Cameras](CAMERAS.md)

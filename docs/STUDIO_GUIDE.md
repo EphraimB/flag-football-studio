@@ -83,6 +83,24 @@ among camera properties. See [Cameras](CAMERAS.md).
 
 Select any Gold or Navy roster member.
 
+### Genesis
+
+Use **Begin Genesis** to place the selected player into the staged blueprint
+workflow, then move through Body Frame, Anatomical Form, Identity/Appearance,
+Hair/Details, Clothing/Uniform, Personality/Voice, and Complete. Edit physical
+facts, choose a broad body description, protect height/face/hair with semantic
+locks, and use grouped **Undo**/**Redo**. The central viewport shows a cyan
+holographic materialization overlay until the player reaches Complete. The AI
+status is intentionally disconnected; this milestone adds only the safe future
+contract. See [Player Genesis](PLAYER_GENESIS.md).
+
+### Personality
+
+Edit normalized confidence, talkativeness, competitiveness, encouragement,
+playfulness, emotional intensity, calmness, and leadership traits. The displayed
+style is derived. Personality persists independently and currently does not
+change football outcomes, authored dialogue, or ambient conversation behavior.
+
 ### Body
 
 Edit height, build, shoulder/chest/waist/hip widths, arm and leg length, skin
@@ -149,4 +167,3 @@ updates visible sequences and cancels transient playback.
 Dialogue text does not generate speech automatically. Unrecorded lines remain
 silent unless the explicit developer preview tone is enabled. See
 [Audio](AUDIO.md).
-

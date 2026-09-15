@@ -151,6 +151,9 @@ public partial class Main : Node3D
         _playerStudio.VoiceModelsRefreshRequested += OnVoiceModelsRefreshRequested;
         _playerStudio.VoiceProfileChanged += OnPlayerVoiceProfileChanged;
         _playerStudio.VoiceTestRequested += OnPlayerVoiceTestRequested;
+        _playerStudio.GenesisPresentationChanged += OnGenesisPresentationChanged;
+        _playerStudio.PersonalityChanged += playerId =>
+            _gameDirector.SetStatus($"Personality updated for {PlayerPawnFor(playerId).Player?.Name ?? playerId.ToString()}");
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
         _dialogueDirector.PreviewLineRequested += OnDialoguePreviewRequested;
@@ -160,6 +163,7 @@ public partial class Main : Node3D
         _dialogueDirector.GenerateLipSyncRequested += OnGenerateLipSyncRequested;
         _dialogueDirector.RawAudioTestRequested += OnRawAudioTestRequested;
         _dialogueDirector.SpatialAudioTestRequested += OnSpatialAudioTestRequested;
+        _playerStudio.RefreshGenesisPresentation();
 
         if (OS.GetCmdlineUserArgs().Contains("--diagnose-football-simulation"))
             CallDeferred(nameof(RunFootballSimulationDiagnostics));
@@ -179,6 +183,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunPlayerVoiceSetupValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-character-visuals"))
             CallDeferred(nameof(RunCharacterVisualValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-player-genesis"))
+            CallDeferred(nameof(RunPlayerGenesisValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -315,6 +321,23 @@ public partial class Main : Node3D
         }
     }
 
+    private async void RunPlayerGenesisValidation()
+    {
+        var validator = new PlayerGenesisValidator { Name = "PlayerGenesisValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Player Genesis validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
     private void RunFootballSimulationValidation()
     {
         var validator = new FootballSimulationValidator { Name = "FootballSimulationValidator" };
@@ -364,6 +387,10 @@ public partial class Main : Node3D
                 throw new InvalidOperationException("The selected camera is not prominent in the Cameras workspace.");
             if (!_cameraDirector.CutSequenceSummary.Contains("0.0s Broadcast Wide", StringComparison.Ordinal))
                 throw new InvalidOperationException("The opening 0.0s Broadcast Wide cut is not prominent.");
+
+            SelectWorkspace(StudioWorkspace.Players);
+            if (!_playerStudio.GenesisStageSummary.Contains("STAGE", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Player Genesis is not prominent in the Players workspace.");
 
             SelectWorkspace(StudioWorkspace.Game);
             GD.Print("Workspace layout validation passed.");
@@ -993,6 +1020,7 @@ public partial class Main : Node3D
         _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         _playerStudio.SetProject(_project, _game);
         _playerStudio.SetVoiceModels(_piperVoiceCatalog.Discover());
+        _playerStudio.RefreshGenesisPresentation();
         _uniformStudio.SetProject(_project);
         _dialogueDirector.SetProject(_project, _play);
         ApplyFormation();
@@ -1352,6 +1380,16 @@ public partial class Main : Node3D
         _director.RefreshAppearance();
         _cameraDirector.RefreshPlayerLabels();
         _gameDirector.SetStatus("Player appearance updated");
+    }
+
+    private void OnGenesisPresentationChanged(Guid playerId, GenesisStage stage,
+        GenesisMaterializationState state, float heightMeters)
+    {
+        foreach (var node in _pawns.Values)
+            if (node is PlayerPawn { Player: not null } pawn)
+                pawn.SetGenesisPresentation(GenesisStage.Complete, GenesisMaterializationState.Ready,
+                    _project.CharacterSpecificationFor(pawn.Player.Id).PhysicalFacts.HeightMeters);
+        PlayerPawnFor(playerId).SetGenesisPresentation(stage, state, heightMeters);
     }
 
     private void OnExpressionPreviewRequested(Guid playerId, FacialExpressionState expression)

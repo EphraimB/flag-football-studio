@@ -78,6 +78,8 @@ public sealed class ProjectJsonSerializer
         public Dictionary<Guid, Guid> ActiveUniformIds { get; set; } = [];
         public List<DialogueSequenceData> DialogueSequences { get; set; } = [];
         public List<PlayerVoiceProfileData> PlayerVoiceProfiles { get; set; } = [];
+        public List<CharacterSpecificationData> CharacterSpecifications { get; set; } = [];
+        public List<PlayerPersonalityData> PlayerPersonalities { get; set; } = [];
 
         public static GameProjectData FromDomain(GameProject project) => new()
         {
@@ -100,7 +102,9 @@ public sealed class ProjectJsonSerializer
             Uniforms = project.Uniforms.Select(UniformData.FromDomain).ToList(),
             ActiveUniformIds = project.ActiveUniformIds.ToDictionary(entry => entry.Key, entry => entry.Value),
             DialogueSequences = project.DialogueSequences.Select(DialogueSequenceData.FromDomain).ToList(),
-            PlayerVoiceProfiles = project.PlayerVoiceProfiles.Values.Select(PlayerVoiceProfileData.FromDomain).ToList()
+            PlayerVoiceProfiles = project.PlayerVoiceProfiles.Values.Select(PlayerVoiceProfileData.FromDomain).ToList(),
+            CharacterSpecifications = project.CharacterSpecifications.Values.Select(CharacterSpecificationData.FromDomain).ToList(),
+            PlayerPersonalities = project.PlayerPersonalities.Values.Select(PlayerPersonalityData.FromDomain).ToList()
         };
 
         public GameProject ToDomain()
@@ -110,10 +114,17 @@ public sealed class ProjectJsonSerializer
             project.SetLastPlayResult(LastPlayResult ?? "No play run");
             foreach (var appearance in PlayerAppearances)
                 project.SetPlayerAppearance(appearance.ToDomain());
+            if (CharacterSpecifications.Count == 0)
+                project.RebuildCharacterSpecificationsFromAppearances();
+            else
+                foreach (var specification in CharacterSpecifications)
+                    project.SetCharacterSpecification(specification.ToDomain());
             if (Uniforms.Count > 0)
                 project.ReplaceUniformLibrary(Uniforms.Select(uniform => uniform.ToDomain()), ActiveUniformIds);
             foreach (var voiceProfile in PlayerVoiceProfiles)
                 project.SetPlayerVoiceProfile(voiceProfile.ToDomain());
+            foreach (var personality in PlayerPersonalities)
+                project.SetPlayerPersonality(personality.ToDomain());
             foreach (var play in Plays)
                 project.AddPlay(play.ToDomain());
             foreach (var camera in Cameras)
@@ -124,6 +135,129 @@ public sealed class ProjectJsonSerializer
                 project.AddDialogueSequence(sequence.ToDomain());
             return project;
         }
+    }
+
+    private sealed class CharacterSpecificationData
+    {
+        public int Version { get; set; } = CharacterSpecification.CurrentVersion;
+        public Guid PlayerId { get; set; }
+        public PlayerPhysicalFactsData PhysicalFacts { get; set; } = new();
+        public Dictionary<string, CharacterPropertyValueData> Properties { get; set; } = [];
+        public List<CharacterIdentityCategory> LockedCategories { get; set; } = [];
+        public List<string> LockedProperties { get; set; } = [];
+        public GenesisStage Stage { get; set; } = GenesisStage.Complete;
+        public CharacterReferenceAssetsData ReferenceAssets { get; set; } = new();
+
+        public static CharacterSpecificationData FromDomain(CharacterSpecification specification) => new()
+        {
+            Version = specification.Version,
+            PlayerId = specification.PlayerId,
+            PhysicalFacts = PlayerPhysicalFactsData.FromDomain(specification.PhysicalFacts),
+            Properties = specification.Properties.ToDictionary(pair => pair.Key,
+                pair => CharacterPropertyValueData.FromDomain(pair.Value), StringComparer.Ordinal),
+            LockedCategories = specification.LockedCategories.ToList(),
+            LockedProperties = specification.LockedProperties.ToList(),
+            Stage = specification.Stage,
+            ReferenceAssets = CharacterReferenceAssetsData.FromDomain(specification.ReferenceAssets)
+        };
+
+        public CharacterSpecification ToDomain() => new(PlayerId, PhysicalFacts.ToDomain(),
+            Properties.Select(pair => new KeyValuePair<string, CharacterPropertyValue>(pair.Key, pair.Value.ToDomain())),
+            LockedCategories, LockedProperties, Stage, ReferenceAssets.ToDomain(), Version);
+    }
+
+    private sealed class PlayerPhysicalFactsData
+    {
+        public float HeightMeters { get; set; } = 1.8f;
+        public float WeightKilograms { get; set; } = 75f;
+        public int AgeYears { get; set; } = 21;
+        public PlayerPosition Position { get; set; } = PlayerPosition.Receiver;
+        public DominantHand DominantHand { get; set; } = DominantHand.Right;
+
+        public static PlayerPhysicalFactsData FromDomain(PlayerPhysicalFacts facts) => new()
+        {
+            HeightMeters = facts.HeightMeters,
+            WeightKilograms = facts.WeightKilograms,
+            AgeYears = facts.AgeYears,
+            Position = facts.Position,
+            DominantHand = facts.DominantHand
+        };
+
+        public PlayerPhysicalFacts ToDomain() =>
+            new(HeightMeters, WeightKilograms, AgeYears, Position, DominantHand);
+    }
+
+    private sealed class CharacterPropertyValueData
+    {
+        public CharacterValueKind Kind { get; set; }
+        public double NumberValue { get; set; }
+        public int IntegerValue { get; set; }
+        public string TextValue { get; set; } = string.Empty;
+        public bool BooleanValue { get; set; }
+        public AppearanceColor ColorValue { get; set; }
+
+        public static CharacterPropertyValueData FromDomain(CharacterPropertyValue value) => new()
+        {
+            Kind = value.Kind,
+            NumberValue = value.NumberValue,
+            IntegerValue = value.IntegerValue,
+            TextValue = value.TextValue,
+            BooleanValue = value.BooleanValue,
+            ColorValue = value.ColorValue
+        };
+
+        public CharacterPropertyValue ToDomain() =>
+            new(Kind, NumberValue, IntegerValue, TextValue, BooleanValue, ColorValue);
+    }
+
+    private sealed class CharacterReferenceAssetsData
+    {
+        public string? HeadIdentity { get; set; }
+        public string? FacialTextures { get; set; }
+        public string? MorphData { get; set; }
+        public string? HairAsset { get; set; }
+        public string? DetailMaps { get; set; }
+
+        public static CharacterReferenceAssetsData FromDomain(CharacterReferenceAssets assets) => new()
+        {
+            HeadIdentity = assets.HeadIdentity,
+            FacialTextures = assets.FacialTextures,
+            MorphData = assets.MorphData,
+            HairAsset = assets.HairAsset,
+            DetailMaps = assets.DetailMaps
+        };
+
+        public CharacterReferenceAssets ToDomain() =>
+            new(HeadIdentity, FacialTextures, MorphData, HairAsset, DetailMaps);
+    }
+
+    private sealed class PlayerPersonalityData
+    {
+        public Guid PlayerId { get; set; }
+        public float Confidence { get; set; } = 0.5f;
+        public float Talkativeness { get; set; } = 0.5f;
+        public float Competitiveness { get; set; } = 0.5f;
+        public float Encouragement { get; set; } = 0.5f;
+        public float Playfulness { get; set; } = 0.5f;
+        public float EmotionalIntensity { get; set; } = 0.5f;
+        public float Calmness { get; set; } = 0.5f;
+        public float Leadership { get; set; } = 0.5f;
+
+        public static PlayerPersonalityData FromDomain(PlayerPersonalityProfile profile) => new()
+        {
+            PlayerId = profile.PlayerId,
+            Confidence = profile.Confidence,
+            Talkativeness = profile.Talkativeness,
+            Competitiveness = profile.Competitiveness,
+            Encouragement = profile.Encouragement,
+            Playfulness = profile.Playfulness,
+            EmotionalIntensity = profile.EmotionalIntensity,
+            Calmness = profile.Calmness,
+            Leadership = profile.Leadership
+        };
+
+        public PlayerPersonalityProfile ToDomain() => new(PlayerId, Confidence, Talkativeness,
+            Competitiveness, Encouragement, Playfulness, EmotionalIntensity, Calmness, Leadership);
     }
 
     private sealed class PlayerVoiceProfileData

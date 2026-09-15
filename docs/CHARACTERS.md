@@ -41,6 +41,24 @@ Studio **Voice** tab configures its local provider/model, speaker, rate, pitch,
 volume, style, and emotion. These settings are identity/persistence data; audio
 generation and mouth-anchor playback remain presentation services.
 
+## Player Genesis
+
+The Players workspace now begins with **Genesis**, a staged identity workflow
+over the same selected roster player and central 3D viewport. It separates
+direct physical facts (height, weight, age, position, dominant hand) from
+derived body, face, skin, eye, hair, clothing, and accessory identity. Semantic
+locks apply across Genesis and corresponding advanced controls, while exact
+transactions support transient undo/redo.
+
+`CharacterSpecification`, `PlayerPersonalityProfile`, and
+`PlayerVoiceProfile` are three independent persisted branches. Appearance does
+not imply personality or voice. Personality currently has an explicit
+presentation-only mapping and is not connected to simulation or ambient phrase
+selection. The cyan holographic view is an overlay routed through
+`CharacterVisualController`, so it remains compatible with the procedural
+fallback and a future imported digital human. See
+[Player Genesis](PLAYER_GENESIS.md).
+
 ## Face and eyes
 
 `HumanoidFaceMesh` uses one fixed indexed low-poly topology on the head bone.

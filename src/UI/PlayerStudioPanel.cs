@@ -24,10 +24,18 @@ public partial class PlayerStudioPanel : PanelContainer
         MouthWidth, LipFullness, EarSize, EarPosition
     }
 
+    private enum PersonalityTrait
+    {
+        Confidence, Talkativeness, Competitiveness, Encouragement,
+        Playfulness, EmotionalIntensity, Calmness, Leadership
+    }
+
     private readonly List<Guid> _playerIds = [];
     private readonly List<(GazePreviewTargetKind Kind, Guid? PlayerId)> _gazeTargets = [];
     private readonly Dictionary<PlayerAccessories, CheckButton> _accessoryChecks = [];
     private readonly Dictionary<FaceControl, SpinBox> _faceControls = [];
+    private readonly Dictionary<PersonalityTrait, SpinBox> _personalityControls = [];
+    private readonly Dictionary<Guid, CharacterEditHistory> _genesisHistories = [];
     private IReadOnlyList<PiperVoiceModelInfo> _voiceModels = [];
     private readonly List<PiperVoiceModelInfo> _displayVoiceModels = [];
     private VoiceSettingsSnapshot? _copiedVoiceSettings;
@@ -94,6 +102,27 @@ public partial class PlayerStudioPanel : PanelContainer
     private Button _voiceCopyButton = null!;
     private Button _voicePasteButton = null!;
     private Button _voiceClearButton = null!;
+    private Label _genesisStageLabel = null!;
+    private Label _genesisFactsSummary = null!;
+    private Label _genesisStateLabel = null!;
+    private Label _genesisFutureLabel = null!;
+    private ProgressBar _genesisProgress = null!;
+    private SpinBox _genesisHeight = null!;
+    private SpinBox _genesisWeight = null!;
+    private SpinBox _genesisAge = null!;
+    private OptionButton _genesisPosition = null!;
+    private OptionButton _genesisDominantHand = null!;
+    private OptionButton _genesisBodyFrame = null!;
+    private CheckButton _genesisHeightLock = null!;
+    private CheckButton _genesisFaceLock = null!;
+    private CheckButton _genesisHairLock = null!;
+    private Button _genesisBeginButton = null!;
+    private Button _genesisBackButton = null!;
+    private Button _genesisContinueButton = null!;
+    private Button _genesisUndoButton = null!;
+    private Button _genesisRedoButton = null!;
+    private Label _personalityStyles = null!;
+    private GenesisMaterializationState _genesisState = GenesisMaterializationState.Ready;
 
     public event Action<Guid>? AppearanceChanged;
     public event Action<string>? StatusChanged;
@@ -106,6 +135,8 @@ public partial class PlayerStudioPanel : PanelContainer
     public event Action? VoiceModelsRefreshRequested;
     public event Action<PlayerVoiceProfile>? VoiceProfileChanged;
     public event Action<PlayerVoiceProfile>? VoiceTestRequested;
+    public event Action<Guid, GenesisStage, GenesisMaterializationState, float>? GenesisPresentationChanged;
+    public event Action<Guid>? PersonalityChanged;
 
     public void Configure(GameProject project, Game game)
     {
@@ -117,6 +148,7 @@ public partial class PlayerStudioPanel : PanelContainer
     {
         _project = project;
         _game = game;
+        _genesisHistories.Clear();
         RefreshPlayers();
     }
 
@@ -127,6 +159,11 @@ public partial class PlayerStudioPanel : PanelContainer
     public void CopySelectedVoiceSettings() => CopyVoiceSettings();
     public void PasteSelectedVoiceSettings() => PasteVoiceSettings();
     public void RequestSelectedVoiceTest() => TestVoice();
+    public GenesisStage SelectedGenesisStage => _selectedPlayerId == Guid.Empty
+        ? GenesisStage.Complete
+        : _project.CharacterSpecificationFor(_selectedPlayerId).Stage;
+    public string GenesisStageSummary => _genesisStageLabel?.Text ?? string.Empty;
+    public void RefreshGenesisPresentation() => EmitGenesisPresentation();
 
     public void SelectPlayer(Guid playerId)
     {
@@ -173,6 +210,14 @@ public partial class PlayerStudioPanel : PanelContainer
             control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
         foreach (var button in new[] { _voiceAssignButton, _voiceTestButton, _voiceRefreshButton, _voiceCopyButton, _voicePasteButton, _voiceClearButton })
             button.Disabled = !enabled;
+        foreach (var control in new Control[] { _genesisHeight, _genesisWeight, _genesisAge, _genesisPosition,
+                     _genesisDominantHand, _genesisBodyFrame, _genesisHeightLock, _genesisFaceLock, _genesisHairLock })
+            control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        foreach (var button in new[] { _genesisBeginButton, _genesisBackButton, _genesisContinueButton,
+                     _genesisUndoButton, _genesisRedoButton })
+            button.Disabled = !enabled;
+        foreach (var control in _personalityControls.Values)
+            control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
     }
 
     public void RefreshUniformFields()
@@ -209,6 +254,8 @@ public partial class PlayerStudioPanel : PanelContainer
             SizeFlagsVertical = Control.SizeFlags.ExpandFill
         };
         stack.AddChild(tabs);
+
+        BuildGenesisEditor(tabs);
 
         var scroll = new ScrollContainer
         {
@@ -290,6 +337,7 @@ public partial class PlayerStudioPanel : PanelContainer
         BuildHairEditor(tabs);
         BuildFaceEditor(tabs);
         BuildMouthEditor(tabs);
+        BuildPersonalityEditor(tabs);
         BuildVoiceEditor(tabs);
     }
 
@@ -336,6 +384,8 @@ public partial class PlayerStudioPanel : PanelContainer
         foreach (var accessory in _accessoryChecks)
             accessory.Value.ButtonPressed = appearance.Accessories.HasFlag(accessory.Key);
         RefreshFaceEditor(appearance.Face);
+        RefreshGenesisEditor();
+        RefreshPersonalityEditor();
         RefreshVoiceEditor();
     }
 
@@ -348,10 +398,12 @@ public partial class PlayerStudioPanel : PanelContainer
         RefreshGazeTargets();
         RefreshEditor();
         _refreshing = false;
+        EmitGenesisPresentation();
     }
 
     private void OnHeightChanged(double value) =>
-        UpdateAppearance(appearance => appearance.SetHeight((float)value));
+        ApplyGenesisValue(CharacterEditOperationKind.SetPhysicalFact, CharacterSemanticPaths.Height,
+            CharacterPropertyValue.FromNumber(value), "Set height");
 
     private void OnBodyBuildChanged(long index) =>
         UpdateAppearance(appearance => appearance.SetBodyBuild((BodyBuild)_bodyBuild.GetItemId((int)index)));
@@ -369,6 +421,12 @@ public partial class PlayerStudioPanel : PanelContainer
     {
         if (_refreshing || _selectedPlayerId == Guid.Empty)
             return;
+        if (IsGenesisCategoryLocked(CharacterIdentityCategory.FaceIdentity))
+        {
+            StatusChanged?.Invoke("Face identity is locked. Unlock it in Genesis before editing face controls.");
+            RefreshWithGuard();
+            return;
+        }
 
         var appearance = _project.AppearanceFor(_selectedPlayerId);
         var face = appearance.Face;
@@ -397,6 +455,7 @@ public partial class PlayerStudioPanel : PanelContainer
         _refreshing = true;
         RefreshFaceEditor(face);
         _refreshing = false;
+        SynchronizeSpecificationFromAppearance();
         AppearanceChanged?.Invoke(_selectedPlayerId);
     }
 
@@ -404,8 +463,17 @@ public partial class PlayerStudioPanel : PanelContainer
 
     private void OnHairStyleChanged(long _) => ApplyHairEditor();
 
-    private void OnHairColorChanged(Color color) =>
+    private void OnHairColorChanged(Color color)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty) return;
+        if (IsGenesisCategoryLocked(CharacterIdentityCategory.HairIdentity))
+        {
+            StatusChanged?.Invoke("Hair identity is locked. Unlock it in Genesis before editing hair controls.");
+            RefreshWithGuard();
+            return;
+        }
         UpdateAppearance(appearance => appearance.Hair.SetColor(ToDomain(color)));
+    }
 
     private void OnUniformColorChanged(Color _)
     {
@@ -467,6 +535,7 @@ public partial class PlayerStudioPanel : PanelContainer
         if (_refreshing || _selectedPlayerId == Guid.Empty)
             return;
         update(_project.AppearanceFor(_selectedPlayerId));
+        SynchronizeSpecificationFromAppearance();
         UpdatePlayerLabel(SelectedPlayer());
         AppearanceChanged?.Invoke(_selectedPlayerId);
     }
@@ -490,6 +559,347 @@ public partial class PlayerStudioPanel : PanelContainer
         check.Toggled += OnAccessoriesChanged;
         parent.AddChild(check);
         _accessoryChecks.Add(accessory, check);
+    }
+
+    private void BuildGenesisEditor(TabContainer tabs)
+    {
+        var scroll = new ScrollContainer
+        {
+            Name = "Genesis",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
+        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 8);
+        scroll.AddChild(stack);
+
+        var heading = new Label { Text = "PLAYER GENESIS", HorizontalAlignment = HorizontalAlignment.Center };
+        heading.AddThemeFontSizeOverride("font_size", 22);
+        stack.AddChild(heading);
+        stack.AddChild(new Label
+        {
+            Text = "Deterministic identity blueprint",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Modulate = new Color(0.52f, 0.9f, 1f)
+        });
+
+        _genesisStageLabel = new Label { Name = "GenesisStage", HorizontalAlignment = HorizontalAlignment.Center };
+        _genesisStageLabel.AddThemeFontSizeOverride("font_size", 18);
+        stack.AddChild(_genesisStageLabel);
+        _genesisProgress = new ProgressBar { Name = "GenesisProgress", MinValue = 0, MaxValue = 1, ShowPercentage = true };
+        stack.AddChild(_genesisProgress);
+        _genesisStateLabel = new Label { Name = "GenesisState", HorizontalAlignment = HorizontalAlignment.Center };
+        stack.AddChild(_genesisStateLabel);
+        _genesisFactsSummary = new Label { HorizontalAlignment = HorizontalAlignment.Center };
+        _genesisFactsSummary.AddThemeFontSizeOverride("font_size", 16);
+        stack.AddChild(_genesisFactsSummary);
+
+        var factsTitle = new Label { Text = "KNOWN FACTS" };
+        factsTitle.AddThemeFontSizeOverride("font_size", 15);
+        stack.AddChild(factsTitle);
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(grid);
+
+        _genesisHeight = CreateSpinBox(PlayerPhysicalFacts.MinimumHeightMeters, PlayerPhysicalFacts.MaximumHeightMeters, 0.01, " m");
+        _genesisHeight.Name = "GenesisHeight";
+        _genesisHeight.ValueChanged += value => ApplyGenesisValue(CharacterEditOperationKind.SetPhysicalFact,
+            CharacterSemanticPaths.Height, CharacterPropertyValue.FromNumber(value), "Set exact height");
+        AddField(grid, "Height", _genesisHeight);
+        _genesisWeight = CreateSpinBox(PlayerPhysicalFacts.MinimumWeightKilograms, PlayerPhysicalFacts.MaximumWeightKilograms, 0.5, " kg");
+        _genesisWeight.Name = "GenesisWeight";
+        _genesisWeight.ValueChanged += value => ApplyGenesisValue(CharacterEditOperationKind.SetPhysicalFact,
+            CharacterSemanticPaths.Weight, CharacterPropertyValue.FromNumber(value), "Set exact weight");
+        AddField(grid, "Weight", _genesisWeight);
+        _genesisAge = CreateSpinBox(PlayerPhysicalFacts.MinimumAgeYears, PlayerPhysicalFacts.MaximumAgeYears, 1, " years");
+        _genesisAge.Name = "GenesisAge";
+        _genesisAge.ValueChanged += value => ApplyGenesisValue(CharacterEditOperationKind.SetPhysicalFact,
+            CharacterSemanticPaths.Age, CharacterPropertyValue.FromInteger((int)value), "Set exact age");
+        AddField(grid, "Age", _genesisAge);
+
+        _genesisPosition = new OptionButton { Name = "GenesisPosition" };
+        foreach (var position in Enum.GetValues<PlayerPosition>()) _genesisPosition.AddItem(position.ToString(), (int)position);
+        _genesisPosition.ItemSelected += _ => ApplyGenesisValue(CharacterEditOperationKind.SetPhysicalFact,
+            CharacterSemanticPaths.Position, CharacterPropertyValue.FromText(((PlayerPosition)_genesisPosition.GetSelectedId()).ToString()), "Set position fact");
+        AddField(grid, "Position", _genesisPosition);
+        _genesisDominantHand = new OptionButton { Name = "GenesisDominantHand" };
+        foreach (var hand in Enum.GetValues<DominantHand>()) _genesisDominantHand.AddItem(hand.ToString(), (int)hand);
+        _genesisDominantHand.ItemSelected += _ => ApplyGenesisValue(CharacterEditOperationKind.SetPhysicalFact,
+            CharacterSemanticPaths.DominantHand, CharacterPropertyValue.FromText(((DominantHand)_genesisDominantHand.GetSelectedId()).ToString()), "Set dominant hand");
+        AddField(grid, "Dominant hand", _genesisDominantHand);
+        _genesisBodyFrame = new OptionButton { Name = "GenesisBodyFrame" };
+        foreach (var frame in Enum.GetValues<BodyFrameDescription>()) _genesisBodyFrame.AddItem(frame.ToString(), (int)frame);
+        _genesisBodyFrame.ItemSelected += _ => ApplyGenesisValue(CharacterEditOperationKind.SetAppearanceCharacteristic,
+            CharacterSemanticPaths.BodyFrame, CharacterPropertyValue.FromText(((BodyFrameDescription)_genesisBodyFrame.GetSelectedId()).ToString()), "Set body description");
+        AddField(grid, "Body description", _genesisBodyFrame);
+
+        var locks = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(locks);
+        _genesisHeightLock = AddGenesisLock(locks, "Lock height", locked => ApplyGenesisPropertyLock(CharacterSemanticPaths.Height, locked));
+        _genesisFaceLock = AddGenesisLock(locks, "Lock face", locked => ApplyGenesisCategoryLock(CharacterIdentityCategory.FaceIdentity, locked));
+        _genesisHairLock = AddGenesisLock(locks, "Lock hair", locked => ApplyGenesisCategoryLock(CharacterIdentityCategory.HairIdentity, locked));
+
+        var stageActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(stageActions);
+        _genesisBeginButton = AddGenesisButton(stageActions, "Begin Genesis", () => SetGenesisStage(GenesisStage.Blueprint, "Begin Genesis"));
+        _genesisBackButton = AddGenesisButton(stageActions, "Back", () => MoveGenesisStage(-1));
+        _genesisContinueButton = AddGenesisButton(stageActions, "Continue", () => MoveGenesisStage(1));
+
+        var historyActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(historyActions);
+        _genesisUndoButton = AddGenesisButton(historyActions, "Undo", UndoGenesis);
+        _genesisRedoButton = AddGenesisButton(historyActions, "Redo", RedoGenesis);
+
+        _genesisFutureLabel = new Label
+        {
+            Name = "GenesisAiStatus",
+            Text = "Future local Character Director: not connected",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            Modulate = new Color(0.72f, 0.76f, 0.82f)
+        };
+        stack.AddChild(_genesisFutureLabel);
+    }
+
+    private void BuildPersonalityEditor(TabContainer tabs)
+    {
+        var scroll = new ScrollContainer
+        {
+            Name = "Personality",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
+        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 6);
+        scroll.AddChild(stack);
+        stack.AddChild(new Label
+        {
+            Text = "Persistent personality identity. Presentation influence only; football simulation remains authoritative.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        });
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(grid);
+        AddPersonalityControl(grid, PersonalityTrait.Confidence, "Confidence");
+        AddPersonalityControl(grid, PersonalityTrait.Talkativeness, "Talkativeness");
+        AddPersonalityControl(grid, PersonalityTrait.Competitiveness, "Competitiveness");
+        AddPersonalityControl(grid, PersonalityTrait.Encouragement, "Encouragement");
+        AddPersonalityControl(grid, PersonalityTrait.Playfulness, "Humor / playfulness");
+        AddPersonalityControl(grid, PersonalityTrait.EmotionalIntensity, "Emotional intensity");
+        AddPersonalityControl(grid, PersonalityTrait.Calmness, "Patience / calmness");
+        AddPersonalityControl(grid, PersonalityTrait.Leadership, "Leadership tendency");
+        _personalityStyles = new Label { Name = "PersonalityStyles", AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        stack.AddChild(_personalityStyles);
+        stack.AddChild(new Label
+        {
+            Text = "These traits do not infer appearance or voice. Runtime dialogue selection does not consume them yet.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            Modulate = new Color(0.7f, 0.74f, 0.8f)
+        });
+    }
+
+    private void AddPersonalityControl(GridContainer grid, PersonalityTrait trait, string label)
+    {
+        var control = CreateSpinBox(0, 1, 0.05);
+        control.Name = $"Personality{trait}";
+        control.ValueChanged += OnPersonalityValueChanged;
+        _personalityControls.Add(trait, control);
+        AddField(grid, label, control);
+    }
+
+    private void RefreshGenesisEditor()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        var specification = _project.CharacterSpecificationFor(_selectedPlayerId);
+        var facts = specification.PhysicalFacts;
+        _genesisStageLabel.Text = $"STAGE {(int)specification.Stage + 1} / 8 — {specification.Stage.DisplayName().ToUpperInvariant()}";
+        _genesisProgress.Value = specification.StageProgress;
+        _genesisStateLabel.Text = $"State: {_genesisState}";
+        var totalInches = facts.HeightMeters * 39.3701f;
+        var feet = (int)(totalInches / 12f);
+        var inches = (int)MathF.Round(totalInches - feet * 12f);
+        _genesisFactsSummary.Text = $"{feet}'{inches}\"   {facts.WeightKilograms * 2.20462f:0} lb\n{facts.Position}   {facts.DominantHand}-handed";
+        _genesisHeight.Value = facts.HeightMeters;
+        _genesisWeight.Value = facts.WeightKilograms;
+        _genesisAge.Value = facts.AgeYears;
+        SelectItemById(_genesisPosition, (int)facts.Position);
+        SelectItemById(_genesisDominantHand, (int)facts.DominantHand);
+        SelectItemById(_genesisBodyFrame, (int)Enum.Parse<BodyFrameDescription>(specification.Value(CharacterSemanticPaths.BodyFrame).TextValue, true));
+        _genesisHeightLock.ButtonPressed = specification.LockedProperties.Contains(CharacterSemanticPaths.Height);
+        _genesisFaceLock.ButtonPressed = specification.LockedCategories.Contains(CharacterIdentityCategory.FaceIdentity);
+        _genesisHairLock.ButtonPressed = specification.LockedCategories.Contains(CharacterIdentityCategory.HairIdentity);
+        var history = HistoryFor(_selectedPlayerId);
+        _genesisBackButton.Disabled = specification.Stage == GenesisStage.Blueprint;
+        _genesisContinueButton.Disabled = specification.Stage == GenesisStage.Complete;
+        _genesisUndoButton.Disabled = !history.CanUndo;
+        _genesisRedoButton.Disabled = !history.CanRedo;
+    }
+
+    private void RefreshPersonalityEditor()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        var profile = _project.PersonalityFor(_selectedPlayerId);
+        _personalityControls[PersonalityTrait.Confidence].Value = profile.Confidence;
+        _personalityControls[PersonalityTrait.Talkativeness].Value = profile.Talkativeness;
+        _personalityControls[PersonalityTrait.Competitiveness].Value = profile.Competitiveness;
+        _personalityControls[PersonalityTrait.Encouragement].Value = profile.Encouragement;
+        _personalityControls[PersonalityTrait.Playfulness].Value = profile.Playfulness;
+        _personalityControls[PersonalityTrait.EmotionalIntensity].Value = profile.EmotionalIntensity;
+        _personalityControls[PersonalityTrait.Calmness].Value = profile.Calmness;
+        _personalityControls[PersonalityTrait.Leadership].Value = profile.Leadership;
+        _personalityStyles.Text = $"Derived style: {string.Join(", ", profile.DerivedStyleLabels)}";
+    }
+
+    private void ApplyGenesisValue(CharacterEditOperationKind kind, string path, CharacterPropertyValue value, string label)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty) return;
+        var plan = new CharacterEditPlan(Guid.NewGuid(), [new CharacterEditOperation(kind, path, value)], label);
+        var result = HistoryFor(_selectedPlayerId).Apply(plan, label);
+        if (!result.Validation.IsValid)
+        {
+            StatusChanged?.Invoke(string.Join(" ", result.Validation.Errors));
+            RefreshWithGuard();
+            return;
+        }
+        CommitGenesisSpecification(result.Specification, GenesisMaterializationState.Applying);
+    }
+
+    private void ApplyGenesisPropertyLock(string path, bool locked)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty) return;
+        var operation = locked ? CharacterEditOperation.LockProperty(path) : CharacterEditOperation.UnlockProperty(path);
+        ApplyGenesisLock(operation, locked ? $"Locked {path}" : $"Unlocked {path}");
+    }
+
+    private void ApplyGenesisCategoryLock(CharacterIdentityCategory category, bool locked)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty) return;
+        var operation = locked ? CharacterEditOperation.LockCategory(category) : CharacterEditOperation.UnlockCategory(category);
+        ApplyGenesisLock(operation, locked ? $"Locked {category}" : $"Unlocked {category}");
+    }
+
+    private void ApplyGenesisLock(CharacterEditOperation operation, string label)
+    {
+        var result = HistoryFor(_selectedPlayerId).Apply(new CharacterEditPlan(Guid.NewGuid(), [operation], label), label);
+        if (result.Validation.IsValid) CommitGenesisSpecification(result.Specification, GenesisMaterializationState.Ready);
+    }
+
+    private void MoveGenesisStage(int direction)
+    {
+        var current = _project.CharacterSpecificationFor(_selectedPlayerId).Stage;
+        var next = (GenesisStage)Math.Clamp((int)current + direction, 0, (int)GenesisStage.Complete);
+        SetGenesisStage(next, direction > 0 ? "Continue Genesis" : "Back in Genesis");
+    }
+
+    private void SetGenesisStage(GenesisStage stage, string label)
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        var specification = HistoryFor(_selectedPlayerId).Commit(label, item => item.SetStage(stage));
+        CommitGenesisSpecification(specification, GenesisMaterializationState.Materializing);
+    }
+
+    private void UndoGenesis()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        CommitGenesisSpecification(HistoryFor(_selectedPlayerId).Undo(), GenesisMaterializationState.Applying);
+    }
+
+    private void RedoGenesis()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        CommitGenesisSpecification(HistoryFor(_selectedPlayerId).Redo(), GenesisMaterializationState.Applying);
+    }
+
+    private void CommitGenesisSpecification(CharacterSpecification specification, GenesisMaterializationState state)
+    {
+        _project.SetCharacterSpecification(specification);
+        CharacterSpecificationAppearanceAdapter.Apply(specification, _project.AppearanceFor(specification.PlayerId));
+        _genesisState = state;
+        RefreshWithGuard();
+        AppearanceChanged?.Invoke(specification.PlayerId);
+        EmitGenesisPresentation();
+        _ = FinishGenesisTransitionAsync(specification.PlayerId);
+    }
+
+    private async System.Threading.Tasks.Task FinishGenesisTransitionAsync(Guid playerId)
+    {
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        if (_selectedPlayerId != playerId) return;
+        _genesisState = GenesisMaterializationState.Ready;
+        RefreshWithGuard();
+        EmitGenesisPresentation();
+    }
+
+    private void OnPersonalityValueChanged(double _)
+    {
+        if (_refreshing || _selectedPlayerId == Guid.Empty) return;
+        var profile = _project.PersonalityFor(_selectedPlayerId);
+        profile.SetTraits(P(PersonalityTrait.Confidence), P(PersonalityTrait.Talkativeness),
+            P(PersonalityTrait.Competitiveness), P(PersonalityTrait.Encouragement),
+            P(PersonalityTrait.Playfulness), P(PersonalityTrait.EmotionalIntensity),
+            P(PersonalityTrait.Calmness), P(PersonalityTrait.Leadership));
+        PersonalityChanged?.Invoke(_selectedPlayerId);
+        _personalityStyles.Text = $"Derived style: {string.Join(", ", profile.DerivedStyleLabels)}";
+        return;
+
+        float P(PersonalityTrait trait) => (float)_personalityControls[trait].Value;
+    }
+
+    private CharacterEditHistory HistoryFor(Guid playerId)
+    {
+        if (!_genesisHistories.TryGetValue(playerId, out var history))
+        {
+            history = new CharacterEditHistory(_project.CharacterSpecificationFor(playerId));
+            _genesisHistories.Add(playerId, history);
+        }
+        return history;
+    }
+
+    private void SynchronizeSpecificationFromAppearance()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        var appearance = _project.AppearanceFor(_selectedPlayerId);
+        var specification = _project.CharacterSpecificationFor(_selectedPlayerId).Clone();
+        specification.ApplyValidated(CharacterSemanticPaths.Height,
+            CharacterPropertyValue.FromNumber(appearance.HeightMeters));
+        CharacterSpecificationAppearanceAdapter.Capture(appearance, specification);
+        _project.SetCharacterSpecification(specification);
+        _genesisHistories.Remove(_selectedPlayerId);
+    }
+
+    private void RefreshWithGuard()
+    {
+        _refreshing = true;
+        RefreshEditor();
+        _refreshing = false;
+    }
+
+    private void EmitGenesisPresentation()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        var specification = _project.CharacterSpecificationFor(_selectedPlayerId);
+        GenesisPresentationChanged?.Invoke(_selectedPlayerId, specification.Stage, _genesisState,
+            specification.PhysicalFacts.HeightMeters);
+    }
+
+    private static Button AddGenesisButton(Node parent, string text, Action action)
+    {
+        var button = new Button { Text = text };
+        button.Pressed += action;
+        parent.AddChild(button);
+        return button;
+    }
+
+    private static CheckButton AddGenesisLock(Node parent, string text, Action<bool> toggled)
+    {
+        var check = new CheckButton { Text = text };
+        check.Toggled += value => toggled(value);
+        parent.AddChild(check);
+        return check;
     }
 
     private void BuildHairEditor(TabContainer tabs)
@@ -548,6 +958,12 @@ public partial class PlayerStudioPanel : PanelContainer
     {
         if (_refreshing || _selectedPlayerId == Guid.Empty)
             return;
+        if (IsGenesisCategoryLocked(CharacterIdentityCategory.HairIdentity))
+        {
+            StatusChanged?.Invoke("Hair identity is locked. Unlock it in Genesis before editing hair controls.");
+            RefreshWithGuard();
+            return;
+        }
         var hair = _project.AppearanceFor(_selectedPlayerId).Hair;
         hair.SetParameters(
             (HairStyle)_hairStyle.GetItemId(_hairStyle.Selected),
@@ -562,8 +978,13 @@ public partial class PlayerStudioPanel : PanelContainer
         _refreshing = true;
         RefreshHairEditor(hair);
         _refreshing = false;
+        SynchronizeSpecificationFromAppearance();
         AppearanceChanged?.Invoke(_selectedPlayerId);
     }
+
+    private bool IsGenesisCategoryLocked(CharacterIdentityCategory category) =>
+        _selectedPlayerId != Guid.Empty &&
+        _project.CharacterSpecificationFor(_selectedPlayerId).LockedCategories.Contains(category);
 
     private void RefreshHairEditor(HairAppearance hair)
     {

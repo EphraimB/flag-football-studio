@@ -14,6 +14,7 @@ public partial class CharacterVisualController : Node3D
     private static readonly HashSet<string> ReportedFallbacks = [];
     private CharacterVisualRequest _request = CharacterVisualRequest.Default;
     private HumanoidRig _legacy = null!;
+    private GenesisHologramPresenter _genesisPresenter = null!;
 
     public CharacterVisualBackend RequestedBackend => Status.RequestedBackend;
     public CharacterVisualBackend ActiveBackend => Status.ActiveBackend;
@@ -68,6 +69,9 @@ public partial class CharacterVisualController : Node3D
     public bool IsSpeechShapeCycling => _legacy.IsSpeechShapeCycling;
     public bool FirstPersonViewActive => _legacy.FirstPersonViewActive;
     public Aabb BodyBounds => _legacy.BodyBounds;
+    public GenesisStage GenesisStage => _genesisPresenter.Stage;
+    public GenesisMaterializationState GenesisMaterializationState => _genesisPresenter.MaterializationState;
+    public bool GenesisHologramActive => _genesisPresenter.HologramActive;
 
     public void Configure(CharacterVisualRequest request)
     {
@@ -98,6 +102,9 @@ public partial class CharacterVisualController : Node3D
 
         _legacy = new HumanoidRig { Name = "HumanoidRig" };
         AddChild(_legacy);
+        _genesisPresenter = new GenesisHologramPresenter { Name = "GenesisHologram" };
+        AddChild(_genesisPresenter);
+        _genesisPresenter.Configure(_legacy, 1.8f);
     }
 
     public void Apply(Player player, PlayerAppearance appearance, UniformDefinition uniform) =>
@@ -128,4 +135,6 @@ public partial class CharacterVisualController : Node3D
     public void SetFirstPersonView(bool active) => _legacy.SetFirstPersonView(active);
     public bool HeadGeometryVisibleTo(Camera3D camera) => _legacy.HeadGeometryVisibleTo(camera);
     public bool BodyGeometryVisibleTo(Camera3D camera) => _legacy.BodyGeometryVisibleTo(camera);
+    public void SetGenesisPresentation(GenesisStage stage, GenesisMaterializationState state, float heightMeters) =>
+        _genesisPresenter.SetPresentation(stage, state, heightMeters);
 }

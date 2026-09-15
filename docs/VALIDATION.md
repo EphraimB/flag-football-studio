@@ -21,6 +21,7 @@ handled by the configured main scene.
 | Sports animation/contact | `godot --headless --path . -- --validate-sports-animation` | Event poses, gait/speed, cuts, blending, contact, ball/hand anchors, immutability, POV |
 | Humanoid | `godot --headless --path . -- --validate-humanoids` | Shared topology, body extremes/builds, JSON, deformation, stable anchors |
 | Character migration | `godot --headless --path . -- --validate-character-visuals` | Imported GLB contract, control-rig mapping, missing-asset fallback, adapter preservation of morphs/animation/contact/anchors/POV |
+| Player Genesis | `godot --headless --path . -- --validate-player-genesis` | Stages, exact facts, semantic edits/locks, atomic transactions, undo/redo, JSON defaults, personality isolation, hologram adapter, anchors and POV |
 | Faces | `godot --headless --path . -- --validate-faces` | Clamps/combinations, topology, finite geometry, JSON, animation and anchors |
 | Expressions/eyes | `godot --headless --path . -- --validate-expressions` | Eye extremes, gaze targets/limits, blinking, blended expressions while moving, POV |
 | Hair | `godot --headless --path . -- --validate-hair` | Styles with head extremes, clamps, deterministic geometry, accessories, JSON, animation/POV |
@@ -73,6 +74,14 @@ asset. It validates the richer render-rig contract, proves every legacy control
 bone has a semantic mapping, requests a deliberately missing GLB, and verifies
 clean fallback plus the existing live presentation paths. Once a real asset is
 added, the same validator becomes the first compatibility gate.
+
+Player Genesis validation exercises exact physical facts, lock preservation,
+unrelated edits against locked identity, deterministic undo/redo, old-project
+defaults, and CharacterSpecification/personality JSON. It compares complete
+simulator timelines before and after personality changes, validates the future
+provider-independent proposal contract without running a model, and checks that
+the hologram uses the visual adapter without disturbing stable POV or hand
+anchors.
 
 ### Cameras and audio
 

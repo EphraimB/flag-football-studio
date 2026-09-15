@@ -15,6 +15,8 @@ public sealed class GameProject
     private readonly Dictionary<Guid, Guid> _activeUniformIds = [];
     private readonly List<DialogueSequence> _dialogueSequences = [];
     private readonly Dictionary<Guid, PlayerVoiceProfile> _playerVoiceProfiles = [];
+    private readonly Dictionary<Guid, CharacterSpecification> _characterSpecifications = [];
+    private readonly Dictionary<Guid, PlayerPersonalityProfile> _playerPersonalities = [];
     private readonly ReadOnlyCollection<PlayDefinition> _readOnlyPlays;
     private readonly ReadOnlyCollection<CameraDefinition> _readOnlyCameras;
     private readonly ReadOnlyCollection<CameraCut> _readOnlyCameraCuts;
@@ -23,6 +25,8 @@ public sealed class GameProject
     private readonly ReadOnlyDictionary<Guid, Guid> _readOnlyActiveUniformIds;
     private readonly ReadOnlyCollection<DialogueSequence> _readOnlyDialogueSequences;
     private readonly ReadOnlyDictionary<Guid, PlayerVoiceProfile> _readOnlyPlayerVoiceProfiles;
+    private readonly ReadOnlyDictionary<Guid, CharacterSpecification> _readOnlyCharacterSpecifications;
+    private readonly ReadOnlyDictionary<Guid, PlayerPersonalityProfile> _readOnlyPlayerPersonalities;
 
     public GameProject(Guid id, string name, Team homeTeam, Team awayTeam)
     {
@@ -51,15 +55,21 @@ public sealed class GameProject
         _readOnlyActiveUniformIds = new ReadOnlyDictionary<Guid, Guid>(_activeUniformIds);
         _readOnlyDialogueSequences = _dialogueSequences.AsReadOnly();
         _readOnlyPlayerVoiceProfiles = new ReadOnlyDictionary<Guid, PlayerVoiceProfile>(_playerVoiceProfiles);
+        _readOnlyCharacterSpecifications = new ReadOnlyDictionary<Guid, CharacterSpecification>(_characterSpecifications);
+        _readOnlyPlayerPersonalities = new ReadOnlyDictionary<Guid, PlayerPersonalityProfile>(_playerPersonalities);
         foreach (var player in HomeTeam.Roster)
         {
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, true);
             _playerVoiceProfiles[player.Id] = PlayerVoiceProfile.CreateDefault(player);
+            _characterSpecifications[player.Id] = CharacterSpecification.CreateDefault(player, _playerAppearances[player.Id]);
+            _playerPersonalities[player.Id] = new PlayerPersonalityProfile(player.Id);
         }
         foreach (var player in AwayTeam.Roster)
         {
             _playerAppearances[player.Id] = CreateDefaultAppearance(player, false);
             _playerVoiceProfiles[player.Id] = PlayerVoiceProfile.CreateDefault(player);
+            _characterSpecifications[player.Id] = CharacterSpecification.CreateDefault(player, _playerAppearances[player.Id]);
+            _playerPersonalities[player.Id] = new PlayerPersonalityProfile(player.Id);
         }
         var homeUniform = UniformDefinition.CreateTeamDefault(HomeTeam, true);
         var awayUniform = UniformDefinition.CreateTeamDefault(AwayTeam, false);
@@ -89,6 +99,8 @@ public sealed class GameProject
     public IReadOnlyDictionary<Guid, Guid> ActiveUniformIds => _readOnlyActiveUniformIds;
     public IReadOnlyList<DialogueSequence> DialogueSequences => _readOnlyDialogueSequences;
     public IReadOnlyDictionary<Guid, PlayerVoiceProfile> PlayerVoiceProfiles => _readOnlyPlayerVoiceProfiles;
+    public IReadOnlyDictionary<Guid, CharacterSpecification> CharacterSpecifications => _readOnlyCharacterSpecifications;
+    public IReadOnlyDictionary<Guid, PlayerPersonalityProfile> PlayerPersonalities => _readOnlyPlayerPersonalities;
 
     public void SetGameState(
         int homeScore,
@@ -280,6 +292,36 @@ public sealed class GameProject
         _playerVoiceProfiles[profile.PlayerId] = profile;
     }
 
+    public CharacterSpecification CharacterSpecificationFor(Guid playerId) =>
+        _characterSpecifications.TryGetValue(playerId, out var specification)
+            ? specification
+            : throw new KeyNotFoundException("The requested character specification is not in this project.");
+
+    public void SetCharacterSpecification(CharacterSpecification specification)
+    {
+        ArgumentNullException.ThrowIfNull(specification);
+        ValidateRosterPlayer(specification.PlayerId, nameof(specification));
+        _characterSpecifications[specification.PlayerId] = specification;
+    }
+
+    public PlayerPersonalityProfile PersonalityFor(Guid playerId) =>
+        _playerPersonalities.TryGetValue(playerId, out var personality)
+            ? personality
+            : throw new KeyNotFoundException("The requested player personality is not in this project.");
+
+    public void SetPlayerPersonality(PlayerPersonalityProfile personality)
+    {
+        ArgumentNullException.ThrowIfNull(personality);
+        ValidateRosterPlayer(personality.PlayerId, nameof(personality));
+        _playerPersonalities[personality.PlayerId] = personality;
+    }
+
+    public void RebuildCharacterSpecificationsFromAppearances()
+    {
+        foreach (var player in HomeTeam.Roster.Concat(AwayTeam.Roster))
+            _characterSpecifications[player.Id] = CharacterSpecification.CreateDefault(player, AppearanceFor(player.Id));
+    }
+
     public PlayerAppearance AppearanceFor(Guid playerId) =>
         _playerAppearances.TryGetValue(playerId, out var appearance)
             ? appearance
@@ -391,5 +433,11 @@ public sealed class GameProject
     {
         if (teamId != HomeTeam.Id && teamId != AwayTeam.Id)
             throw new ArgumentException("The team is not in this project.", nameof(teamId));
+    }
+
+    private void ValidateRosterPlayer(Guid playerId, string parameterName)
+    {
+        if (!HomeTeam.Roster.Concat(AwayTeam.Roster).Any(player => player.Id == playerId))
+            throw new ArgumentException("The player is not in this project.", parameterName);
     }
 }
