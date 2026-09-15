@@ -28,6 +28,11 @@ colors, trim, number styling, shorts, flags, wordmark, name toggle, and home/awa
 designation. `GameProject` persists appearances, uniform libraries, and active
 selections; expression, gaze, blink, and speech preview remain transient.
 
+Each roster player also owns one persisted `PlayerVoiceProfile`. The Player
+Studio **Voice** tab configures its local provider/model, speaker, rate, pitch,
+volume, style, and emotion. These settings are identity/persistence data; audio
+generation and mouth-anchor playback remain presentation services.
+
 ## Face and eyes
 
 `HumanoidFaceMesh` uses one fixed indexed low-poly topology on the head bone.
@@ -88,4 +93,3 @@ simulation owns timing and world position.
   currently samples flat terrain without slope/raycast ankle/toe behavior.
 - Hand correction lacks elbow/shoulder IK and finger poses, so extreme builds
   can show gaps or stretch.
-

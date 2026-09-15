@@ -30,8 +30,11 @@ public partial class Main : Node3D
     private readonly JsonProjectFileStore _fileStore = new(new ProjectJsonSerializer());
     private readonly string _projectPath = ProjectSettings.GlobalizePath("user://flag-football-studio/game-project.json");
     private ProjectAudioAssetStore _audioAssetStore = null!;
+    private PiperTtsProvider _piperProvider = null!;
+    private PiperVoiceCatalog _piperVoiceCatalog = null!;
     private SpeechGenerationService _speechGeneration = null!;
     private CancellationTokenSource? _speechCancellation;
+    private CancellationTokenSource? _voiceTestCancellation;
     private Game _game = null!;
     private GameProject _project = null!;
     private PlayDefinition _play = null!;
@@ -59,8 +62,9 @@ public partial class Main : Node3D
     {
         _game = Game.CreatePrototype();
         _audioAssetStore = new ProjectAudioAssetStore(_projectPath);
-        _speechGeneration = new SpeechGenerationService(
-            new PiperTtsProvider(ProjectSettings.GlobalizePath("res://")), _audioAssetStore);
+        _piperProvider = new PiperTtsProvider(ProjectSettings.GlobalizePath("res://"));
+        _piperVoiceCatalog = new PiperVoiceCatalog(_piperProvider.ModelsDirectory);
+        _speechGeneration = new SpeechGenerationService(_piperProvider, _audioAssetStore);
         _project = GameProject.CreatePrototype(_game);
         _play = _project.Plays[0];
         _selectedCameraId = _project.Cameras[0].Id;
@@ -144,6 +148,9 @@ public partial class Main : Node3D
         _playerStudio.GazePreviewRequested += OnGazePreviewRequested;
         _playerStudio.MouthPreviewRequested += OnMouthPreviewRequested;
         _playerStudio.SpeechShapeCycleRequested += OnSpeechShapeCycleRequested;
+        _playerStudio.VoiceModelsRefreshRequested += OnVoiceModelsRefreshRequested;
+        _playerStudio.VoiceProfileChanged += OnPlayerVoiceProfileChanged;
+        _playerStudio.VoiceTestRequested += OnPlayerVoiceTestRequested;
         _uniformStudio.UniformChanged += OnUniformChanged;
         _uniformStudio.StatusChanged += message => _gameDirector.SetStatus(message);
         _dialogueDirector.PreviewLineRequested += OnDialoguePreviewRequested;
@@ -168,6 +175,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunVenueAudioValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-ambient-tts"))
             CallDeferred(nameof(RunAmbientTtsValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-player-voice-setup"))
+            CallDeferred(nameof(RunPlayerVoiceSetupValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -261,6 +270,23 @@ public partial class Main : Node3D
         {
             await validator.RunAsync();
             GD.Print("Ambient player TTS validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
+    private async void RunPlayerVoiceSetupValidation()
+    {
+        var validator = new PlayerVoiceSetupValidator { Name = "PlayerVoiceSetupValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Player voice setup and persistence validation passed.");
             GetTree().Quit();
         }
         catch (Exception exception)
@@ -632,6 +658,7 @@ public partial class Main : Node3D
         LayoutWorkspacePanel(_playerStudio);
         canvas.AddChild(_playerStudio);
         _playerStudio.Configure(_project, _game);
+        _playerStudio.SetVoiceModels(_piperVoiceCatalog.Discover());
 
         _uniformStudio = new UniformStudioPanel
         {
@@ -946,6 +973,7 @@ public partial class Main : Node3D
         _venue.SyncScoreboard(_project);
         _cameraDirector.SetProject(_project, _game, _play, _selectedCameraId);
         _playerStudio.SetProject(_project, _game);
+        _playerStudio.SetVoiceModels(_piperVoiceCatalog.Discover());
         _uniformStudio.SetProject(_project);
         _dialogueDirector.SetProject(_project, _play);
         ApplyFormation();
@@ -1014,6 +1042,57 @@ public partial class Main : Node3D
         {
             GD.PushError(exception.ToString());
             _dialogueDirector.SetGenerationStatus(TtsGenerationState.Failed, exception.Message);
+        }
+    }
+
+    private void OnVoiceModelsRefreshRequested()
+    {
+        var models = _piperVoiceCatalog.Discover();
+        _playerStudio.SetVoiceModels(models);
+        var ready = models.Count(model => model.IsCompatible);
+        var incomplete = models.Count - ready;
+        _gameDirector.SetStatus($"Piper models refreshed: {ready} ready, {incomplete} incomplete");
+    }
+
+    private void OnPlayerVoiceProfileChanged(PlayerVoiceProfile profile)
+    {
+        _project.SetPlayerVoiceProfile(profile);
+        // Dialogue and venue controllers hold the project's live read-only dictionary, so this
+        // exact profile is immediately visible to authored and ambient speech resolution.
+        _gameDirector.SetStatus($"Voice profile updated: {profile.DisplayName}");
+    }
+
+    private async void OnPlayerVoiceTestRequested(PlayerVoiceProfile profile)
+    {
+        _voiceTestCancellation?.Cancel();
+        _voiceTestCancellation?.Dispose();
+        _voiceTestCancellation = new CancellationTokenSource();
+        try
+        {
+            _playerStudio.SetVoiceTestStatus(TtsGenerationState.Generating,
+                $"Generating with {System.IO.Path.GetFileNameWithoutExtension(profile.ModelIdOrPath)}");
+            await System.Threading.Tasks.Task.Yield();
+            var line = new DialogueLine(Guid.NewGuid(), profile.PlayerId, 0, 1,
+                "Ready for the next play.", 1, SpeechStyle.Normal, 12);
+            var outcome = await _speechGeneration.GenerateAsync(line, profile, false, _voiceTestCancellation.Token);
+            if (!_project.PlayerVoiceProfiles.TryGetValue(profile.PlayerId, out var current) || current.Id != profile.Id)
+            {
+                _playerStudio.SetVoiceTestStatus(TtsGenerationState.Cancelled,
+                    "Player/project changed before preview; generated clip was not played");
+                return;
+            }
+            _playerStudio.SetVoiceTestStatus(TtsGenerationState.Completed,
+                $"{outcome.ProviderResult.Duration:0.00}s via {outcome.ProviderResult.Device}; model {System.IO.Path.GetFileNameWithoutExtension(profile.ModelIdOrPath)}");
+            await _dialogueController.PreviewLineAsync(outcome.Line);
+        }
+        catch (OperationCanceledException)
+        {
+            _playerStudio.SetVoiceTestStatus(TtsGenerationState.Cancelled, "Voice test cancelled");
+        }
+        catch (Exception exception)
+        {
+            GD.PushWarning($"Player voice test failed: {exception.Message}");
+            _playerStudio.SetVoiceTestStatus(TtsGenerationState.Failed, exception.Message);
         }
     }
 

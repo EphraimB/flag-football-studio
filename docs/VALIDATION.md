@@ -31,6 +31,7 @@ handled by the configured main scene.
 | Voice/lip sync | `godot --headless --path . -- --validate-voice-lip-sync` | Voice/audio/viseme JSON, bounds/order, WAV, silence/fallback modes, simultaneous speech, seek, cuts/POV |
 | Local TTS | `godot --headless --path . -- --validate-local-tts` | Fake-provider CUDA/CPU contract, portable output, timing fallback, manual protection, model errors |
 | Ambient player TTS | `godot --headless --path . -- --validate-ambient-tts` | Voice resolution, cache identity/rekeying, non-blocking bounded generation, failures, mouth anchors, priority, lip sync, and simulation invariance |
+| Player voice setup | `godot --headless --path . -- --validate-player-voice-setup` | Piper pair discovery, no-download behavior, Player Studio assignment/copy/clear/test wiring, persistence, asynchronous generation, and ambient-cache integration |
 | Visual presentation | `godot --headless --path . -- --validate-visual-presentation` | Material reuse, skin/team colors, quality/exposure/night lights, unchanged FOV/simulation |
 | Venue | `godot --headless --path . -- --validate-environment` | Scoreboard, presets, deterministic spectators, resource bounds, camera clearance, hooks, simulation equivalence |
 | Venue audio | `godot --headless --path . -- --validate-venue-audio` | Concurrent sources, scheduling/proximity, listeners, ducking, events/reactions, PCM, source lifetime, raw/near/production paths |
@@ -93,6 +94,8 @@ preemption, and unchanged persistent venue beds and simulator output.
 
 `--validate-local-tts` uses a deterministic in-process fake provider. CI does
 not need Python, Piper, a model, or GPU to verify contracts and persistence.
+`--validate-player-voice-setup` likewise uses temporary model stubs and a delayed
+fake provider; it does not download or invoke a real voice.
 
 ## Repository hygiene
 

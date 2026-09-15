@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FlagFootballStudio.Domain;
+using FlagFootballStudio.Tts;
 using Godot;
 
 namespace FlagFootballStudio.Presentation;
@@ -27,6 +28,9 @@ public partial class PlayerStudioPanel : PanelContainer
     private readonly List<(GazePreviewTargetKind Kind, Guid? PlayerId)> _gazeTargets = [];
     private readonly Dictionary<PlayerAccessories, CheckButton> _accessoryChecks = [];
     private readonly Dictionary<FaceControl, SpinBox> _faceControls = [];
+    private IReadOnlyList<PiperVoiceModelInfo> _voiceModels = [];
+    private readonly List<PiperVoiceModelInfo> _displayVoiceModels = [];
+    private VoiceSettingsSnapshot? _copiedVoiceSettings;
     private GameProject _project = null!;
     private Game _game = null!;
     private Guid _selectedPlayerId;
@@ -71,6 +75,25 @@ public partial class PlayerStudioPanel : PanelContainer
     private SpinBox _upperLip = null!;
     private SpinBox _lowerLip = null!;
     private Button _cycleSpeechButton = null!;
+    private Label _rosterVoiceStatus = null!;
+    private Label _voiceConfiguredStatus = null!;
+    private Label _voiceModelStatus = null!;
+    private Label _voiceReferenceAudio = null!;
+    private Label _voiceTestStatus = null!;
+    private OptionButton _voiceBackend = null!;
+    private OptionButton _voiceModel = null!;
+    private LineEdit _voiceSpeaker = null!;
+    private SpinBox _voiceRate = null!;
+    private SpinBox _voicePitch = null!;
+    private SpinBox _voiceVolume = null!;
+    private LineEdit _voiceStyle = null!;
+    private LineEdit _voiceEmotion = null!;
+    private Button _voiceAssignButton = null!;
+    private Button _voiceTestButton = null!;
+    private Button _voiceRefreshButton = null!;
+    private Button _voiceCopyButton = null!;
+    private Button _voicePasteButton = null!;
+    private Button _voiceClearButton = null!;
 
     public event Action<Guid>? AppearanceChanged;
     public event Action<string>? StatusChanged;
@@ -80,6 +103,9 @@ public partial class PlayerStudioPanel : PanelContainer
     public event Action<Guid, GazePreviewTargetKind, Guid?, float, float>? GazePreviewRequested;
     public event Action<Guid, SpeechMouthShape, float, float, float, float, float>? MouthPreviewRequested;
     public event Action<Guid>? SpeechShapeCycleRequested;
+    public event Action? VoiceModelsRefreshRequested;
+    public event Action<PlayerVoiceProfile>? VoiceProfileChanged;
+    public event Action<PlayerVoiceProfile>? VoiceTestRequested;
 
     public void Configure(GameProject project, Game game)
     {
@@ -92,6 +118,37 @@ public partial class PlayerStudioPanel : PanelContainer
         _project = project;
         _game = game;
         RefreshPlayers();
+    }
+
+    public Guid SelectedPlayerId => _selectedPlayerId;
+    public string RosterVoiceSummary => _rosterVoiceStatus?.Text ?? string.Empty;
+    public bool SaveSelectedVoice() => SaveVoiceProfile();
+    public void ClearSelectedVoice() => ClearVoiceProfile();
+    public void CopySelectedVoiceSettings() => CopyVoiceSettings();
+    public void PasteSelectedVoiceSettings() => PasteVoiceSettings();
+    public void RequestSelectedVoiceTest() => TestVoice();
+
+    public void SelectPlayer(Guid playerId)
+    {
+        var index = _playerIds.IndexOf(playerId);
+        if (index < 0) throw new KeyNotFoundException("The requested player is not in Player Studio.");
+        _playerOption.Select(index);
+        OnPlayerSelected(index);
+    }
+
+    public void SetVoiceModels(IReadOnlyList<PiperVoiceModelInfo> models)
+    {
+        _voiceModels = models ?? [];
+        if (_voiceModel is null) return;
+        RefreshVoiceModelOptions(_selectedPlayerId == Guid.Empty ? null : _project.VoiceProfileFor(_selectedPlayerId));
+        if (_selectedPlayerId != Guid.Empty) RefreshVoiceRosterStatus();
+    }
+
+    public void SetVoiceTestStatus(TtsGenerationState state, string message)
+    {
+        if (_voiceTestStatus is null) return;
+        _voiceTestStatus.Text = $"Test: {state} — {message}";
+        _voiceTestButton.Disabled = state is TtsGenerationState.Queued or TtsGenerationState.Generating;
     }
 
     public void SetInteractionEnabled(bool enabled)
@@ -112,6 +169,10 @@ public partial class PlayerStudioPanel : PanelContainer
         foreach (var control in new Control[] { _mouthShape, _jawOpen, _speechLipWidth, _speechLipFullness, _upperLip, _lowerLip })
             control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
         _cycleSpeechButton.Disabled = !enabled;
+        foreach (var control in new Control[] { _voiceBackend, _voiceModel, _voiceSpeaker, _voiceRate, _voicePitch, _voiceVolume, _voiceStyle, _voiceEmotion })
+            control.MouseFilter = enabled ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        foreach (var button in new[] { _voiceAssignButton, _voiceTestButton, _voiceRefreshButton, _voiceCopyButton, _voicePasteButton, _voiceClearButton })
+            button.Disabled = !enabled;
     }
 
     public void RefreshUniformFields()
@@ -138,7 +199,7 @@ public partial class PlayerStudioPanel : PanelContainer
         title.AddThemeFontSizeOverride("font_size", 18);
         stack.AddChild(title);
 
-        _playerOption = new OptionButton { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        _playerOption = new OptionButton { Name = "PlayerSelector", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _playerOption.ItemSelected += OnPlayerSelected;
         stack.AddChild(_playerOption);
 
@@ -229,6 +290,7 @@ public partial class PlayerStudioPanel : PanelContainer
         BuildHairEditor(tabs);
         BuildFaceEditor(tabs);
         BuildMouthEditor(tabs);
+        BuildVoiceEditor(tabs);
     }
 
     private void RefreshPlayers()
@@ -239,7 +301,7 @@ public partial class PlayerStudioPanel : PanelContainer
         foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
         {
             _playerIds.Add(player.Id);
-            _playerOption.AddItem($"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
+            _playerOption.AddItem(PlayerOptionText(player));
         }
 
         _selectedPlayerId = _playerIds.Count > 0 ? _playerIds[0] : Guid.Empty;
@@ -274,6 +336,7 @@ public partial class PlayerStudioPanel : PanelContainer
         foreach (var accessory in _accessoryChecks)
             accessory.Value.ButtonPressed = appearance.Accessories.HasFlag(accessory.Key);
         RefreshFaceEditor(appearance.Face);
+        RefreshVoiceEditor();
     }
 
     private void OnPlayerSelected(long index)
@@ -418,7 +481,7 @@ public partial class PlayerStudioPanel : PanelContainer
     {
         var index = _playerIds.IndexOf(player.Id);
         if (index >= 0)
-            _playerOption.SetItemText(index, $"{player.Team?.Name} #{player.JerseyNumber} {player.Name}");
+            _playerOption.SetItemText(index, PlayerOptionText(player));
     }
 
     private void AddAccessory(Node parent, string label, PlayerAccessories accessory)
@@ -635,6 +698,291 @@ public partial class PlayerStudioPanel : PanelContainer
             Text = "Speech previews layer over the selected facial expression and are not saved.",
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         });
+    }
+
+    private void BuildVoiceEditor(TabContainer tabs)
+    {
+        var scroll = new ScrollContainer
+        {
+            Name = "Voice",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        tabs.AddChild(scroll);
+        var stack = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        stack.AddThemeConstantOverride("separation", 7);
+        scroll.AddChild(stack);
+
+        _rosterVoiceStatus = new Label { Name = "RosterVoiceStatus", Text = "Voices configured: 0 / 0" };
+        _rosterVoiceStatus.AddThemeFontSizeOverride("font_size", 16);
+        stack.AddChild(_rosterVoiceStatus);
+        stack.AddChild(new Label { Text = "● configured   ○ intentionally silent" });
+        _voiceConfiguredStatus = new Label
+        {
+            Text = "Not configured — ambient speech is intentionally silent",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        stack.AddChild(_voiceConfiguredStatus);
+
+        var grid = new GridContainer { Columns = 2, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        grid.AddThemeConstantOverride("h_separation", 10);
+        grid.AddThemeConstantOverride("v_separation", 4);
+        stack.AddChild(grid);
+
+        _voiceBackend = CreateEnumOption<TtsBackendType>();
+        _voiceBackend.Name = "VoiceBackend";
+        _voiceBackend.ItemSelected += _ => RefreshVoiceModelStatus();
+        AddField(grid, "Provider / backend", _voiceBackend);
+        _voiceModel = new OptionButton { Name = "VoiceModel", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        _voiceModel.ItemSelected += _ => RefreshVoiceModelStatus();
+        AddField(grid, "Piper model", _voiceModel);
+        _voiceSpeaker = new LineEdit { Name = "VoiceSpeaker", PlaceholderText = "Optional multi-speaker ID" };
+        AddField(grid, "Speaker ID", _voiceSpeaker);
+        _voiceReferenceAudio = new Label { Text = "None", AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        AddField(grid, "Reference audio", _voiceReferenceAudio);
+        _voiceRate = CreateSpinBox(0.5, 2, 0.05, "×"); _voiceRate.Name = "VoiceRate";
+        AddField(grid, "Speaking rate", _voiceRate);
+        _voicePitch = CreateSpinBox(-12, 12, 0.25, " st"); _voicePitch.Name = "VoicePitch";
+        AddField(grid, "Pitch", _voicePitch);
+        _voiceVolume = CreateSpinBox(0, 1, 0.05); _voiceVolume.Name = "VoiceVolume";
+        AddField(grid, "Volume", _voiceVolume);
+        _voiceStyle = new LineEdit { Name = "VoiceStyle", PlaceholderText = "Optional provider style" };
+        AddField(grid, "Style", _voiceStyle);
+        _voiceEmotion = new LineEdit { Name = "VoiceEmotion", PlaceholderText = "Optional provider emotion" };
+        AddField(grid, "Emotion", _voiceEmotion);
+
+        _voiceModelStatus = new Label
+        {
+            Text = "No Piper model selected",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        stack.AddChild(_voiceModelStatus);
+
+        var modelActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(modelActions);
+        _voiceRefreshButton = AddVoiceButton(modelActions, "Refresh Models", () => VoiceModelsRefreshRequested?.Invoke());
+        _voiceAssignButton = AddVoiceButton(modelActions, "Save Voice", () => SaveVoiceProfile());
+        _voiceClearButton = AddVoiceButton(modelActions, "Clear Voice", ClearVoiceProfile);
+
+        var convenienceActions = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        stack.AddChild(convenienceActions);
+        _voiceCopyButton = AddVoiceButton(convenienceActions, "Copy Voice Settings", CopyVoiceSettings);
+        _voicePasteButton = AddVoiceButton(convenienceActions, "Paste Voice Settings", PasteVoiceSettings);
+        _voiceTestButton = AddVoiceButton(convenienceActions, "Test Voice", TestVoice);
+        _voiceTestStatus = new Label
+        {
+            Text = "Test: Idle — generates “Ready for the next play.” locally",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        stack.AddChild(_voiceTestStatus);
+        stack.AddChild(new Label
+        {
+            Text = "Models are discovered from tools/tts/models. Flag Football Studio never downloads voices automatically.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        });
+    }
+
+    private static Button AddVoiceButton(Node parent, string text, Action pressed)
+    {
+        var button = new Button { Name = text.Replace(" ", string.Empty), Text = text };
+        button.Pressed += pressed;
+        parent.AddChild(button);
+        return button;
+    }
+
+    private void RefreshVoiceEditor()
+    {
+        if (_selectedPlayerId == Guid.Empty || _voiceBackend is null) return;
+        var profile = _project.VoiceProfileFor(_selectedPlayerId);
+        SelectItemById(_voiceBackend, (int)profile.BackendType);
+        _voiceSpeaker.Text = profile.SpeakerId ?? string.Empty;
+        _voiceRate.Value = profile.DefaultSpeakingRate;
+        _voicePitch.Value = profile.DefaultPitchAdjustment;
+        _voiceVolume.Value = profile.DefaultSpeakingVolume;
+        _voiceStyle.Text = profile.Style ?? string.Empty;
+        _voiceEmotion.Text = profile.Emotion ?? string.Empty;
+        _voiceReferenceAudio.Text = profile.ReferenceAudio?.RelativePath ?? "None";
+        RefreshVoiceModelOptions(profile);
+        RefreshVoiceRosterStatus();
+    }
+
+    private void RefreshVoiceModelOptions(PlayerVoiceProfile? profile)
+    {
+        if (_voiceModel is null) return;
+        _displayVoiceModels.Clear();
+        _voiceModel.Clear();
+        foreach (var model in _voiceModels)
+        {
+            _displayVoiceModels.Add(model);
+            _voiceModel.AddItem(model.IsCompatible ? model.Name : $"{model.Name} (incomplete)");
+            _voiceModel.SetItemDisabled(_voiceModel.ItemCount - 1, !model.IsCompatible);
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile?.ModelIdOrPath) &&
+            !_displayVoiceModels.Any(model => SamePath(model.ModelPath, profile.ModelIdOrPath)))
+        {
+            var configured = InspectModel(profile.ModelIdOrPath);
+            _displayVoiceModels.Add(configured);
+            _voiceModel.AddItem(configured.IsCompatible
+                ? $"{configured.Name} (configured)"
+                : $"{configured.Name} (configured, missing)");
+            _voiceModel.SetItemDisabled(_voiceModel.ItemCount - 1, !configured.IsCompatible);
+        }
+
+        var selected = profile is null ? -1 : _displayVoiceModels.FindIndex(model => SamePath(model.ModelPath, profile.ModelIdOrPath));
+        if (selected >= 0) _voiceModel.Select(selected);
+        else if (_voiceModel.ItemCount > 0) _voiceModel.Select(0);
+        RefreshVoiceModelStatus();
+    }
+
+    private void RefreshVoiceModelStatus()
+    {
+        if (_voiceModelStatus is null) return;
+        if ((TtsBackendType)_voiceBackend.GetSelectedId() == TtsBackendType.None)
+        {
+            _voiceModelStatus.Text = "TTS disabled. Ambient phrases for this player remain intentionally silent.";
+            return;
+        }
+        if (_voiceModel.Selected < 0 || _voiceModel.Selected >= _displayVoiceModels.Count)
+        {
+            _voiceModelStatus.Text = "No installed Piper models found. Add an .onnx and matching .onnx.json, then refresh.";
+            return;
+        }
+        var model = _displayVoiceModels[_voiceModel.Selected];
+        _voiceModelStatus.Text = $"{model.Name}: {model.AvailabilityText}\n{model.ModelPath}";
+    }
+
+    private bool SaveVoiceProfile()
+    {
+        if (_selectedPlayerId == Guid.Empty) return false;
+        try
+        {
+            var profile = _project.VoiceProfileFor(_selectedPlayerId);
+            var backend = (TtsBackendType)_voiceBackend.GetSelectedId();
+            string? modelPath = null;
+            if (backend == TtsBackendType.PiperLocal)
+            {
+                if (_voiceModel.Selected < 0 || _voiceModel.Selected >= _displayVoiceModels.Count)
+                    throw new InvalidOperationException("Select a discovered Piper model first.");
+                var model = _displayVoiceModels[_voiceModel.Selected];
+                if (!model.IsCompatible) throw new InvalidOperationException(model.AvailabilityText);
+                modelPath = model.ModelPath;
+            }
+            profile.Update(profile.DisplayName, profile.Description, (float)_voiceVolume.Value,
+                (float)_voicePitch.Value, (float)_voiceRate.Value);
+            profile.ConfigureTts(backend, modelPath, _voiceSpeaker.Text, profile.ReferenceAudio,
+                _voiceStyle.Text, _voiceEmotion.Text);
+            VoiceProfileChanged?.Invoke(profile);
+            RefreshAllPlayerVoiceLabels();
+            StatusChanged?.Invoke($"Voice saved for {PlayerIdentity(SelectedPlayer())}");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            StatusChanged?.Invoke(exception.Message);
+            SetVoiceTestStatus(TtsGenerationState.Failed, exception.Message);
+            return false;
+        }
+    }
+
+    private void ClearVoiceProfile()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        var profile = _project.VoiceProfileFor(_selectedPlayerId);
+        profile.ConfigureTts(TtsBackendType.None, null, null, null, null, null);
+        VoiceProfileChanged?.Invoke(profile);
+        RefreshAllPlayerVoiceLabels();
+        SetVoiceTestStatus(TtsGenerationState.Idle, "Voice cleared; ambient speech is intentionally silent");
+        StatusChanged?.Invoke($"Voice cleared for {PlayerIdentity(SelectedPlayer())}");
+    }
+
+    private void CopyVoiceSettings()
+    {
+        if (_selectedPlayerId == Guid.Empty) return;
+        _copiedVoiceSettings = VoiceSettingsSnapshot.From(_project.VoiceProfileFor(_selectedPlayerId));
+        StatusChanged?.Invoke("Voice settings copied. Select another player and choose Paste Voice Settings.");
+        _voicePasteButton.Disabled = false;
+    }
+
+    private void PasteVoiceSettings()
+    {
+        if (_selectedPlayerId == Guid.Empty || _copiedVoiceSettings is null)
+        {
+            StatusChanged?.Invoke("Copy voice settings from a player first.");
+            return;
+        }
+        var profile = _project.VoiceProfileFor(_selectedPlayerId);
+        _copiedVoiceSettings.Apply(profile);
+        VoiceProfileChanged?.Invoke(profile);
+        RefreshAllPlayerVoiceLabels();
+        StatusChanged?.Invoke($"Voice settings pasted to {PlayerIdentity(SelectedPlayer())}");
+    }
+
+    private void TestVoice()
+    {
+        if (!SaveVoiceProfile() || _selectedPlayerId == Guid.Empty) return;
+        var profile = _project.VoiceProfileFor(_selectedPlayerId);
+        if (!IsVoiceConfigured(profile)) return;
+        SetVoiceTestStatus(TtsGenerationState.Queued, $"Generation started with {PathName(profile.ModelIdOrPath)}");
+        VoiceTestRequested?.Invoke(profile);
+    }
+
+    private void RefreshAllPlayerVoiceLabels()
+    {
+        foreach (var player in _game.Gold.Roster.Concat(_game.Navy.Roster))
+            UpdatePlayerLabel(player);
+        RefreshVoiceEditor();
+    }
+
+    private void RefreshVoiceRosterStatus()
+    {
+        var profiles = _game.Gold.Roster.Concat(_game.Navy.Roster)
+            .Select(player => _project.VoiceProfileFor(player.Id)).ToArray();
+        _rosterVoiceStatus.Text = $"Voices configured: {profiles.Count(IsVoiceConfigured)} / {profiles.Length}";
+        var selected = _project.VoiceProfileFor(_selectedPlayerId);
+        _voiceConfiguredStatus.Text = IsVoiceConfigured(selected)
+            ? $"Configured — Piper / {PathName(selected.ModelIdOrPath)}"
+            : "Not configured — ambient speech is intentionally silent";
+    }
+
+    private string PlayerOptionText(Player player) =>
+        $"{(IsVoiceConfigured(_project.VoiceProfileFor(player.Id)) ? "●" : "○")} {PlayerIdentity(player)} {player.Name}";
+
+    private static string PlayerIdentity(Player player) => $"{player.Team?.Name} #{player.JerseyNumber}";
+
+    private static bool IsVoiceConfigured(PlayerVoiceProfile profile) =>
+        profile.BackendType == TtsBackendType.PiperLocal && InspectModel(profile.ModelIdOrPath).IsCompatible;
+
+    private static PiperVoiceModelInfo InspectModel(string? modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath))
+            return new PiperVoiceModelInfo("No model selected", string.Empty, string.Empty, false, false);
+        var full = System.IO.Path.GetFullPath(modelPath);
+        return new PiperVoiceModelInfo(System.IO.Path.GetFileNameWithoutExtension(full), full, full + ".json",
+            System.IO.File.Exists(full), System.IO.File.Exists(full + ".json"));
+    }
+
+    private static bool SamePath(string? left, string? right) =>
+        !string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right) &&
+        string.Equals(System.IO.Path.GetFullPath(left), System.IO.Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string PathName(string? path) => string.IsNullOrWhiteSpace(path)
+        ? "no model" : System.IO.Path.GetFileNameWithoutExtension(path);
+
+    private sealed record VoiceSettingsSnapshot(
+        float Volume, float Pitch, float Rate, TtsBackendType Backend, string? Model,
+        string? Speaker, VoiceAudioReference? Reference, string? Style, string? Emotion)
+    {
+        public static VoiceSettingsSnapshot From(PlayerVoiceProfile profile) => new(
+            profile.DefaultSpeakingVolume, profile.DefaultPitchAdjustment, profile.DefaultSpeakingRate,
+            profile.BackendType, profile.ModelIdOrPath, profile.SpeakerId, profile.ReferenceAudio,
+            profile.Style, profile.Emotion);
+
+        public void Apply(PlayerVoiceProfile profile)
+        {
+            profile.Update(profile.DisplayName, profile.Description, Volume, Pitch, Rate);
+            profile.ConfigureTts(Backend, Model, Speaker, Reference, Style, Emotion);
+        }
     }
 
     private SpinBox CreateMouthSpinBox(GridContainer grid, string label, double minimum, double maximum, double value, string suffix = "")

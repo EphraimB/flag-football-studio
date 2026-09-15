@@ -46,6 +46,11 @@ The workspace panels edit their corresponding models. `Main` composes those
 panels with the field, characters, simulator, camera, lighting, environment,
 persistence, and audio adapters.
 
+Player Studio voice controls mutate the selected roster player's existing
+`PlayerVoiceProfile`. The project's live profile dictionary is shared with the
+dialogue and venue-audio adapters, so saving a voice requires no duplicate
+registry or resolver and becomes available to ambient TTS immediately.
+
 ## Domain and persistence
 
 - `src/Football` contains project, game, play, simulation, direction, and

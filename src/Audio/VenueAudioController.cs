@@ -78,6 +78,7 @@ public partial class VenueAudioController : Node
     private readonly List<CrowdReactionRecord> _reactions = [];
     private readonly List<VenueOneShotRecord> _oneShotHistory = [];
     private readonly Dictionary<Guid, double> _nextFootstepTimes = [];
+    private readonly Dictionary<string, ulong> _ambientSkipLogTimes = [];
     private IReadOnlyDictionary<Guid, Node3D> _pawns = new Dictionary<Guid, Node3D>();
     private IReadOnlyDictionary<Guid, PlayerVoiceProfile> _voiceProfiles =
         new Dictionary<Guid, PlayerVoiceProfile>();
@@ -474,30 +475,30 @@ public partial class VenueAudioController : Node
     {
         if (!Settings.AmbientConversationsEnabled)
         {
-            SkipAmbient("Ambient conversations are disabled.");
+            SkipAmbient("Ambient conversations are disabled.", cue);
             return;
         }
         if (AuthoredDialogueActive || (_dialoguePlayback?.ActiveAuthoredLineCount ?? 0) > 0)
         {
-            SkipAmbient("Authored dialogue has priority.");
+            SkipAmbient("Authored dialogue has priority.", cue);
             return;
         }
         if ((_dialoguePlayback?.ActiveAmbientLineCount ?? 0) > 0)
         {
-            SkipAmbient("Another ambient player phrase is still playing.");
+            SkipAmbient("Another ambient player phrase is still playing.", cue);
             return;
         }
         if (!_pawns.TryGetValue(cue.SpeakerPlayerId, out var speaker) ||
             !_pawns.TryGetValue(cue.ListenerPlayerId, out var listener) ||
             speaker.GlobalPosition.DistanceTo(listener.GlobalPosition) > 8)
         {
-            SkipAmbient("The speaker/listener is unavailable or no longer nearby.");
+            SkipAmbient("speaker/listener unavailable or outside the 8 m conversation range", cue, "proximity");
             return;
         }
 
         if (CurrentLayerGain(VenueAudioLayer.PlayerChatter) <= 0.0001f)
         {
-            SkipAmbient("Player chatter volume is muted.");
+            SkipAmbient("player chatter volume is muted", cue);
             return;
         }
 
@@ -510,7 +511,10 @@ public partial class VenueAudioController : Node
                 StartGeneratedAmbientConversation(cue, resolution.Clip);
                 return;
             }
-            SkipAmbient(resolution.Reason ?? $"Ambient TTS {resolution.State}.");
+            var reason = resolution.State == AmbientSpeechResolutionState.MissingVoiceConfiguration
+                ? "no configured local TTS voice"
+                : resolution.Reason ?? $"Ambient TTS {resolution.State}.";
+            SkipAmbient(reason, cue, resolution.State.ToString());
             if (!DevelopmentConversationFallbackEnabled) return;
         }
 
@@ -522,7 +526,7 @@ public partial class VenueAudioController : Node
             // Text remains a deterministic presentation cue; no voice is fabricated when none is configured.
             SkipAmbient(cue.HasConfiguredVoice
                 ? "Configured voice audio is not ready; no generic voice was substituted."
-                : "The speaking player has no configured local TTS voice.");
+                : "no configured local TTS voice", cue, "missing-voice");
             return;
         }
         var anchor = speaker is PlayerPawn pawn ? pawn.MouthAudioAnchor : speaker;
@@ -540,7 +544,7 @@ public partial class VenueAudioController : Node
         if (_dialoguePlayback is null || !_pawns.TryGetValue(cue.SpeakerPlayerId, out var node) ||
             node is not PlayerPawn)
         {
-            SkipAmbient("The speaking player was removed before cached speech could play.");
+            SkipAmbient("speaking player was removed before cached speech could play", cue);
             return;
         }
         try
@@ -556,7 +560,7 @@ public partial class VenueAudioController : Node
             var playback = _dialoguePlayback.PlayAmbientLineAsync(line);
             if (_dialoguePlayback.AmbientSourceFor(lineId) is null)
             {
-                SkipAmbient("Ambient playback yielded to authored or already-playing speech.");
+                SkipAmbient("ambient playback yielded to authored or already-playing speech", cue);
                 return;
             }
             PlayedAmbientConversationCount++;
@@ -568,7 +572,7 @@ public partial class VenueAudioController : Node
         {
             _speechGeneration?.InvalidateAmbientClip(clip.CacheKey);
             GD.PushWarning($"Ambient TTS skipped for '{cue.Text}': {exception.Message}");
-            SkipAmbient($"Ambient audio load/play failed: {exception.Message}");
+            SkipAmbient($"ambient audio load/play failed: {exception.Message}", cue, "playback-failure");
         }
     }
 
@@ -583,12 +587,28 @@ public partial class VenueAudioController : Node
         }
     }
 
-    private void SkipAmbient(string reason)
+    private void SkipAmbient(string reason, AmbientConversationCue? cue = null, string? category = null)
     {
         SuppressedAmbientConversationCount++;
-        LastAmbientSkippedReason = reason;
-        GD.Print($"Ambient conversation skipped: {reason}");
+        var playerLabel = cue.HasValue ? AmbientPlayerLabel(cue.Value.SpeakerPlayerId) : null;
+        LastAmbientSkippedReason = playerLabel is null ? reason : $"{playerLabel}: {reason}";
+        var key = $"{cue?.SpeakerPlayerId}:{category ?? reason}";
+        var now = Time.GetTicksMsec();
+        if (!_ambientSkipLogTimes.TryGetValue(key, out var last) || now - last >= 5000)
+        {
+            _ambientSkipLogTimes[key] = now;
+            GD.Print(playerLabel is null
+                ? $"Ambient conversation skipped: {reason}"
+                : $"Ambient conversation skipped for {playerLabel}: {reason}.");
+        }
         PublishAmbientDiagnostics();
+    }
+
+    private string AmbientPlayerLabel(Guid playerId)
+    {
+        if (_pawns.TryGetValue(playerId, out var node) && node is PlayerPawn { Player: { } player })
+            return $"{player.Team?.Name} #{player.JerseyNumber} {player.Name} ({player.Id})";
+        return playerId.ToString();
     }
 
     private void PublishAmbientDiagnostics()

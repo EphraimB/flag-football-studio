@@ -63,13 +63,22 @@ For CPU-only setup:
 
 The setup script creates `tools/tts/.venv`, installs Piper and the selected ONNX
 runtime, and prints an explicit voice-download command. Put the chosen model in
-the ignored `tools/tts/models/` directory or select an existing `.onnx` model in
-Dialogue Director. Its adjacent `.onnx.json` file is required.
+the ignored `tools/tts/models/` directory. Its adjacent `.onnx.json` file is
+required.
+
+In the **Players** workspace, select a player and open **Voice**. Choose Piper,
+click **Refresh Models**, select a discovered complete model pair, adjust the
+speaker/rate/pitch/volume metadata, and click **Save Voice**. Use **Test Voice**
+to generate and spatially preview a short phrase. Repeat per player or use the
+explicit copy/paste controls; the studio never assigns one generic voice to the
+roster automatically.
 
 The bridge prefers `CUDAExecutionProvider` and retries on CPU if CUDA
 initialization fails. Missing runtime, model, or configuration errors are shown
-in the UI; they do not trigger downloads. Speech files are generated only after
-an explicit **Generate Speech** or **Regenerate Speech** action.
+in the UI; they do not trigger downloads. Authored speech files are generated
+after an explicit Dialogue Director generation action; Player Studio voice tests
+are also explicit. Ambient phrases request bounded background generation only
+for players whose profiles have been explicitly configured.
 
 More detail is available in [Audio](AUDIO.md) and
 [`tools/tts/README.md`](../tools/tts/README.md).

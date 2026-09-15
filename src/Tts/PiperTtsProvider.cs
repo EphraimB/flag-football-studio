@@ -27,15 +27,14 @@ public sealed class PiperTtsProvider : ITtsProvider
     }
 
     public TtsBackendType BackendType => TtsBackendType.PiperLocal;
+    public string ModelsDirectory => _modelsDirectory;
 
     public Task<TtsProviderCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken = default)
     {
-        var voices = Directory.Exists(_modelsDirectory)
-            ? Directory.EnumerateFiles(_modelsDirectory, "*.onnx", SearchOption.AllDirectories)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .Select(path => new TtsVoiceDescriptor(Path.GetFileNameWithoutExtension(path),
-                    Path.GetFileNameWithoutExtension(path), path)).ToArray()
-            : [];
+        var voices = new PiperVoiceCatalog(_modelsDirectory).Discover()
+            .Where(model => model.IsCompatible)
+            .Select(model => new TtsVoiceDescriptor(model.ModelPath, model.Name, model.ModelPath))
+            .ToArray();
         return Task.FromResult(new TtsProviderCapabilities("piper-local", "Piper (local ONNX)", true, true,
             false, false, true, new[] { 16000, 22050, 44100 } as IReadOnlyList<int>, voices));
     }

@@ -50,6 +50,14 @@ speakers.
 speaking-rate metadata, backend/model selection, speaker ID, optional reference
 recording, style, and emotion without depending on Godot.
 
+Player Studio's **Voice** tab edits that same persisted profile. It shows the
+roster's configured count, marks silent players with an open circle, discovers
+complete Piper model/configuration pairs, and supports explicit copy/paste and
+clear actions. **Test Voice** generates “Ready for the next play.” without
+blocking the UI, then previews it from the selected player's mouth anchor.
+Saving a valid profile is immediately visible to both authored and ambient TTS;
+there is no secondary voice registry.
+
 `ITtsProvider` is an asynchronous engine-independent boundary.
 `PiperTtsProvider` exchanges JSON over standard I/O with
 `tools/tts/piper_service.py`; football code and Godot nodes do not import Python.
@@ -132,7 +140,8 @@ Master mute, `Play()` call, and post-start `Playing` state.
 a reliable range and level without recreating them. “Engine expected audible”
 is a calculated signal-path result; physical output still requires listening.
 The compact Ambient TTS status reports cache hits/misses, pending count, and the
-last skipped or playback reason.
+last skipped or playback reason. Missing-voice and proximity skip logs identify
+the speaking player and suppress identical console messages for five seconds.
 
 ## Current limitations
 
