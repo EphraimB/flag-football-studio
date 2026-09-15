@@ -77,6 +77,8 @@ quality settings, is not persisted.
 | [Simulation](docs/SIMULATION.md) | Deterministic play model, outcomes, animation integration, and diagnostics |
 | [Cameras](docs/CAMERAS.md) | Camera definitions, cuts, Player POV, sideline operation, and limitations |
 | [Characters](docs/CHARACTERS.md) | Humanoid rig, customization, face/hair/mouth systems, and animation |
+| [Digital-Human Migration](docs/DIGITAL_HUMAN_MIGRATION.md) | Audited procedural-to-production character plan and current blockers |
+| [Character Asset Contract](docs/CHARACTER_ASSET_CONTRACT.md) | Required GLB structure, skeleton, anchors, blend shapes, materials, and LODs |
 | [Audio](docs/AUDIO.md) | Voice assets, lip sync, Piper, spatial dialogue, ambience, and diagnostics |
 | [Environment](docs/ENVIRONMENT.md) | Field, materials, lighting, venue presets, spectators, and quality |
 | [Validation](docs/VALIDATION.md) | Headless validators, diagnostic commands, and regression coverage |

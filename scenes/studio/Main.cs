@@ -177,6 +177,8 @@ public partial class Main : Node3D
             CallDeferred(nameof(RunAmbientTtsValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-player-voice-setup"))
             CallDeferred(nameof(RunPlayerVoiceSetupValidation));
+        else if (OS.GetCmdlineUserArgs().Contains("--validate-character-visuals"))
+            CallDeferred(nameof(RunCharacterVisualValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-workspaces"))
             CallDeferred(nameof(RunWorkspaceValidation));
         else if (OS.GetCmdlineUserArgs().Contains("--validate-camera-profiles"))
@@ -287,6 +289,23 @@ public partial class Main : Node3D
         {
             await validator.RunAsync();
             GD.Print("Player voice setup and persistence validation passed.");
+            GetTree().Quit();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError(exception.ToString());
+            GetTree().Quit(1);
+        }
+    }
+
+    private async void RunCharacterVisualValidation()
+    {
+        var validator = new CharacterVisualMigrationValidator { Name = "CharacterVisualMigrationValidator" };
+        AddChild(validator);
+        try
+        {
+            await validator.RunAsync();
+            GD.Print("Character visual migration validation passed.");
             GetTree().Quit();
         }
         catch (Exception exception)

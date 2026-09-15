@@ -101,11 +101,19 @@ ball attachments without changing authoritative state.
 
 ### Characters
 
-All players use the same 18-bone hierarchy and reusable skinned topology.
-Per-player appearance drives bone proportions, the fixed-topology face,
-procedural hair, reusable eye/mouth geometry, accessories, and materials.
-Stable eye, head, mouth, and hand anchors connect cameras, dialogue, and ball
-presentation to the rig.
+`PlayerPawn` talks to a stable `CharacterVisualController`, not directly to a
+concrete mesh implementation. The active backend remains the shared procedural
+18-bone rig. A development-only imported-backend request validates a modular GLB
+contract and falls back cleanly because no qualifying human asset or retarget
+binder is present yet.
+
+The migration strategy keeps the 18-bone hierarchy as a semantic control rig and
+adds a richer imported render/deformation skeleton behind that boundary. This
+preserves animation/event APIs while allowing future clavicles, twist bones,
+hands, feet, facial blend shapes, and modular garments. Stable eye, mouth, hand,
+catch, carry, and sole anchors remain the camera/audio/contact integration
+contract. See [Digital-Human Migration](DIGITAL_HUMAN_MIGRATION.md) and the
+[Character Asset Contract](CHARACTER_ASSET_CONTRACT.md).
 
 ### Cameras and dialogue
 
@@ -131,7 +139,7 @@ sync.
 
 | Path | Responsibility |
 | --- | --- |
-| `assets/` | Imported/source assets grouped by animations, audio, characters, fields, footballs, UI, and uniforms |
+| `assets/` | Imported/source assets grouped by animations, audio, characters (including the future modular GLB slot), fields, footballs, UI, and uniforms |
 | `data/` | Project-owned playbook, team, and uniform data areas |
 | `scenes/` | Reusable Godot character, game, studio, and UI scenes |
 | `src/Football`, `src/Players`, `src/Teams` | Core models and football/character feature code |
@@ -149,6 +157,8 @@ data directories are retained with `.gitkeep` files.
 
 - [Simulation](SIMULATION.md)
 - [Characters](CHARACTERS.md)
+- [Digital-Human Migration](DIGITAL_HUMAN_MIGRATION.md)
+- [Character Asset Contract](CHARACTER_ASSET_CONTRACT.md)
 - [Cameras](CAMERAS.md)
 - [Audio](AUDIO.md)
 - [Environment](ENVIRONMENT.md)

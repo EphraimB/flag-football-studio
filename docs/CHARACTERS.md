@@ -6,6 +6,13 @@
 Player identity and appearance are Godot-independent. Presentation classes
 translate them into one reusable procedural humanoid used by Gold and Navy.
 
+The procedural humanoid is still the active rendering backend. The first
+production-character milestone adds a stable visual adapter, a modular GLB
+contract, validation, and safe fallback; it does not add a photorealistic asset.
+See [Digital-Human Migration](DIGITAL_HUMAN_MIGRATION.md) for the audited gap and
+[Character Asset Contract](CHARACTER_ASSET_CONTRACT.md) for the exact first-asset
+requirements.
+
 ## Shared humanoid foundation
 
 `HumanoidSkeletonDefinition` defines one 18-bone hierarchy.
@@ -15,7 +22,8 @@ translate them into one reusable procedural humanoid used by Gold and Navy.
 `HumanoidRig` connects the mesh to each skeleton, assigns materials, applies
 proportions through bone transforms, and exposes stable eye, mouth, catch, and
 hand anchors. Uniform details, flags, labels, and accessories are lightweight
-attachments.
+attachments. `CharacterVisualController` now forwards this API for `PlayerPawn`
+and is the compatibility boundary for a future imported modular implementation.
 
 ## Appearance and uniforms
 
@@ -93,3 +101,6 @@ simulation owns timing and world position.
   currently samples flat terrain without slope/raycast ankle/toe behavior.
 - Hand correction lacks elbow/shoulder IK and finger poses, so extreme builds
   can show gaps or stretch.
+- No contract-complete imported player asset or runtime control-to-render
+  retarget binder is present. Requesting the imported development backend reports
+  the missing/incompatible layer and intentionally uses the procedural visual.

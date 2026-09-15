@@ -7,7 +7,7 @@ public partial class PlayerPawn : Node3D
 {
     private PlayerAppearance _appearance = null!;
     private UniformDefinition _uniform = null!;
-    private HumanoidRig _rig = null!;
+    private CharacterVisualController _rig = null!;
     private float _formationRotationY;
     private Tween? _facingTween;
 
@@ -55,6 +55,9 @@ public partial class PlayerPawn : Node3D
     public bool IsSpeechShapeCycling => _rig.IsSpeechShapeCycling;
     public Vector3 ForwardDirection => -GlobalBasis.Z.Normalized();
     public bool FirstPersonViewActive => _rig.FirstPersonViewActive;
+    public CharacterVisualBackend RequestedVisualBackend => _rig.RequestedBackend;
+    public CharacterVisualBackend ActiveVisualBackend => _rig.ActiveBackend;
+    public CharacterVisualStatus VisualStatus => _rig.Status;
 
     public void Configure(Player player, PlayerAppearance appearance, UniformDefinition uniform)
     {
@@ -65,7 +68,7 @@ public partial class PlayerPawn : Node3D
 
     public override void _Ready()
     {
-        _rig = new HumanoidRig { Name = "HumanoidRig" };
+        _rig = new CharacterVisualController { Name = "CharacterVisual" };
         AddChild(_rig);
         ApplyCurrentPresentation();
     }

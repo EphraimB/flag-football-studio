@@ -20,6 +20,7 @@ handled by the configured main scene.
 | Simulation | `godot --headless --path . -- --validate-football-simulation` | Timing, routes, defense, arcs, outcomes, game state, repeatability, divergent fixtures, shared camera/dialogue timeline |
 | Sports animation/contact | `godot --headless --path . -- --validate-sports-animation` | Event poses, gait/speed, cuts, blending, contact, ball/hand anchors, immutability, POV |
 | Humanoid | `godot --headless --path . -- --validate-humanoids` | Shared topology, body extremes/builds, JSON, deformation, stable anchors |
+| Character migration | `godot --headless --path . -- --validate-character-visuals` | Imported GLB contract, control-rig mapping, missing-asset fallback, adapter preservation of morphs/animation/contact/anchors/POV |
 | Faces | `godot --headless --path . -- --validate-faces` | Clamps/combinations, topology, finite geometry, JSON, animation and anchors |
 | Expressions/eyes | `godot --headless --path . -- --validate-expressions` | Eye extremes, gaze targets/limits, blinking, blended expressions while moving, POV |
 | Hair | `godot --headless --path . -- --validate-hair` | Styles with head extremes, clamps, deterministic geometry, accessories, JSON, animation/POV |
@@ -66,6 +67,12 @@ Face validation checks every range end, risky combinations, all persisted face
 fields and eye color, fixed topology, finite geometry, and stable anchors. Hair
 repeats extreme-head tests for every style. Expression and mouth validators
 exercise blending during locomotion.
+
+Character-migration validation does not require or synthesize an external
+asset. It validates the richer render-rig contract, proves every legacy control
+bone has a semantic mapping, requests a deliberately missing GLB, and verifies
+clean fallback plus the existing live presentation paths. Once a real asset is
+added, the same validator becomes the first compatibility gate.
 
 ### Cameras and audio
 
